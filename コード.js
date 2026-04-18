@@ -26,13 +26,12 @@ function setupAppEnvironment() {
   settingsSheet.appendRow(["ASSIGNMENT_SS_ID", "", "提出物用スプレッドシートID"]);
   settingsSheet.appendRow(["QUIZ_SS_ID", "", "小テスト用スプレッドシートID"]);
   settingsSheet.appendRow(["PASS_SCORE", "80", "小テスト合格点"]);
-  settingsSheet.appendRow(["ID_USE_FLAG", "false", "IDから組・番号を抽出するか(true/false)"]);
-  settingsSheet.appendRow(["ID_CLASS_START", "1", "組抽出の開始文字位置(1始まり)"]);
-  settingsSheet.appendRow(["ID_CLASS_LEN", "1", "組抽出の文字数"]);
-  settingsSheet.appendRow(["ID_NUMBER_START", "2", "番号抽出の開始文字位置(1始まり)"]);
-  settingsSheet.appendRow(["ID_NUMBER_LEN", "2", "番号抽出の文字数"]);
   settingsSheet.appendRow(["HEADER_ROWS", "5", "見出し行数"]);
   settingsSheet.appendRow(["ROSTER_COLS", "7", "名簿部分の列数"]);
+  settingsSheet.appendRow(["COL_MAP_NAME", "3", "氏名列のインデックス(0始まり)"]);
+  settingsSheet.appendRow(["COL_MAP_ID", "2", "ID列のインデックス"]);
+  settingsSheet.appendRow(["COL_MAP_CLASS", "0", "組列のインデックス"]);
+  settingsSheet.appendRow(["COL_MAP_NUMBER", "1", "番号列のインデックス"]);
 
   // Config: 利用ログシート
   let logSheet = configSs.insertSheet("利用ログ");
@@ -147,20 +146,48 @@ function updateConfigValue(key, value) {
       break;
     }
   }
-  if (!found) {
-    sheet.appendRow([key, value, ""]);
-  }
-}
-
-function saveAdminSettingsFromUI(assignId, quizId, idFlag) {
+function saveAdminSettingsFromUI(assignId, quizId, mapName, mapId, mapClass, mapNum, rosterCols, headerRows) {
   updateConfigValue("ASSIGNMENT_SS_ID", assignId);
   updateConfigValue("QUIZ_SS_ID", quizId);
-  updateConfigValue("ID_USE_FLAG", idFlag);
+  if (mapName !== "") updateConfigValue("COL_MAP_NAME", mapName);
+  if (mapId !== "") updateConfigValue("COL_MAP_ID", mapId);
+  if (mapClass !== "") updateConfigValue("COL_MAP_CLASS", mapClass);
+  if (mapNum !== "") updateConfigValue("COL_MAP_NUMBER", mapNum);
+  if (rosterCols !== "") updateConfigValue("ROSTER_COLS", rosterCols);
+  if (headerRows !== "") updateConfigValue("HEADER_ROWS", headerRows);
   
   if (assignId) registerBookTypeMarker("assignment", assignId);
   if (quizId) registerBookTypeMarker("quiz", quizId);
   
   return true;
+}
+
+function getHeadersFromSheet(headerRow) {
+  const settings = getAdminSettings();
+  const assignId = settings.ASSIGNMENT_SS_ID || PropertiesService.getScriptProperties().getProperty("SAMPLE_SS_ID");
+  if (!assignId) return [];
+  
+  try {
+    const ss = SpreadsheetApp.openById(assignId);
+    const sheet = ss.getSheets().find(s => !['設定', 'ユーザー管理', 'アプリ設定', '利用ログ'].includes(s.getName()));
+    if (!sheet) return [];
+    
+    const lastCol = sheet.getLastColumn();
+    if (lastCol === 0) return [];
+    
+    const rowNum = parseInt(headerRow) || 5;
+    const values = sheet.getRange(rowNum, 1, 1, lastCol).getValues()[0];
+    
+    let headers = [];
+    for (let i = 0; i < values.length; i++) {
+      if (values[i] === "") break;
+      headers.push(String(values[i]));
+    }
+    return headers;
+  } catch(e) {
+    Logger.log("getHeadersFromSheet Error: " + e);
+    return [];
+  }
 }
 
 function registerBookTypeMarker(bookType, ssId) {
@@ -211,11 +238,17 @@ function getClassData(bookType, className) {
   const settings = getAdminSettings();
   const headerRows = parseInt(settings.HEADER_ROWS) || 5;
   const rosterCols = parseInt(settings.ROSTER_COLS) || 7;
-  const idUseFlag = String(settings.ID_USE_FLAG).toLowerCase() === 'true';
-  const idClassStart = parseInt(settings.ID_CLASS_START) - 1 || 0;
-  const idClassLen = parseInt(settings.ID_CLASS_LEN) || 1;
-  const idNumStart = parseInt(settings.ID_NUMBER_START) - 1 || 0;
-  const idNumLen = parseInt(settings.ID_NUMBER_LEN) || 2;
+  
+  const mapName = parseInt(settings.COL_MAP_NAME);
+  const mapId = parseInt(settings.COL_MAP_ID);
+  const mapClass = parseInt(settings.COL_MAP_CLASS);
+  const mapNum = parseInt(settings.COL_MAP_NUMBER);
+
+  // default fallbacks if not set
+  const colName = isNaN(mapName) ? 3 : mapName;
+  const colId = isNaN(mapId) ? 2 : mapId;
+  const colClass = isNaN(mapClass) ? 0 : mapClass;
+  const colNum = isNaN(mapNum) ? 1 : mapNum;
   
   const dataRows = Math.max(1, lastRow - headerRows);
   const range = sheet.getRange(headerRows + 1, 1, dataRows, rosterCols).getValues();
@@ -262,22 +295,11 @@ function getClassData(bookType, className) {
   taskList.sort((a, b) => a.diff - b.diff);
   
   const students = range.map(row => {
-    let group = row[0]; // 1列目 (A列)
-    let no = row[1];    // 2列目 (B列)
-    let id = row[2];    // 3列目 (C列)
-    let name = row[3];  // 4列目 (D列)
-    
-    if (idUseFlag && id) {
-      const idStr = String(id);
-      group = idStr.substring(idClassStart, idClassStart + idClassLen);
-      no = idStr.substring(idNumStart, idNumStart + idNumLen);
-    }
-    
     return {
-      group: group,
-      no: no,
-      id: id,
-      name: name
+      group: row[colClass],
+      no: row[colNum],
+      id: row[colId],
+      name: row[colName]
     };
   }).filter(s => s.name);
 

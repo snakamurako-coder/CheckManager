@@ -60,11 +60,44 @@
             <label style="font-weight:bold;">小テストブックID</label>
             <input type="text" id="admin-quiz-id" class="admin-input">
           </div>
-          <div class="input-group">
-            <label style="font-weight:bold;">ID使用フラグ (true/false)</label>
-            <input type="text" id="admin-id-flag" class="admin-input">
-          </div>
           <p style="font-size: 12px; color: #666; margin-top: 10px;">※設定を保存すると、対象ブックの全シートA1セルに「提出物」または「小テスト」が自動登録されます。</p>
+
+          <hr style="margin: 20px 0; border: none; border-top: 1px solid #ccc;">
+          <h4 style="color: #1a73e8; margin-top: 0;">列マッピング設定</h4>
+          <p style="font-size: 12px; color: #666;">見出し行から項目を取得し、各列の役割を紐付けます。</p>
+          
+          <div class="input-group" style="display: flex; gap: 10px;">
+            <div style="flex: 1;">
+              <label style="font-weight:bold;">見出し行の番号</label>
+              <input type="number" id="admin-header-row" class="admin-input" value="5">
+            </div>
+            <div style="flex: 1; display: flex; align-items: flex-end;">
+              <button class="nav-btn" onclick="fetchHeaders()" style="width: 100%; margin-bottom: 5px;">見出しを取得</button>
+            </div>
+          </div>
+
+          <div id="mapping-selectors" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 15px;">
+            <div class="input-group">
+              <label>「氏名」として扱う列</label>
+              <select id="map-name"></select>
+            </div>
+            <div class="input-group">
+              <label>「ID」として扱う列</label>
+              <select id="map-id"></select>
+            </div>
+            <div class="input-group">
+              <label>「組」として扱う列</label>
+              <select id="map-class"></select>
+            </div>
+            <div class="input-group">
+              <label>「番号」として扱う列</label>
+              <select id="map-num"></select>
+            </div>
+            <div class="input-group">
+              <label style="font-weight:bold;">名簿部分の列数 (ここから右が課題になります)</label>
+              <input type="number" id="admin-roster-cols" class="admin-input" value="7">
+            </div>
+          </div>
         </div>
         <div>
           <button class="btn-primary" onclick="saveSettings()">設定を保存して再読込</button>

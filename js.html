@@ -156,14 +156,65 @@ function openAdminSettings() {
   google.script.run.withSuccessHandler(settings => {
     document.getElementById('admin-assign-id').value = settings.ASSIGNMENT_SS_ID || '';
     document.getElementById('admin-quiz-id').value = settings.QUIZ_SS_ID || '';
-    document.getElementById('admin-id-flag').value = settings.ID_USE_FLAG || 'false';
+    
+    document.getElementById('admin-header-row').value = settings.HEADER_ROWS || '5';
+    document.getElementById('admin-roster-cols').value = settings.ROSTER_COLS || '7';
+    
+    window.adminTempMaps = {
+      name: settings.COL_MAP_NAME || 3,
+      id: settings.COL_MAP_ID || 2,
+      cls: settings.COL_MAP_CLASS || 0,
+      num: settings.COL_MAP_NUMBER || 1
+    };
+    
+    if (settings.ASSIGNMENT_SS_ID) {
+      fetchHeaders();
+    }
   }).getAdminSettings();
+}
+
+function fetchHeaders() {
+  const row = document.getElementById('admin-header-row').value;
+  document.getElementById('mapping-selectors').style.display = 'block';
+  
+  const selects = ['map-name', 'map-id', 'map-class', 'map-num'].map(id => document.getElementById(id));
+  selects.forEach(s => s.innerHTML = '<option>読み込み中...</option>');
+  
+  google.script.run.withSuccessHandler(headers => {
+    if(!headers || headers.length === 0) {
+      selects.forEach(s => s.innerHTML = '<option value="">見出しなし</option>');
+      return;
+    }
+    
+    selects.forEach(s => s.innerHTML = '');
+    headers.forEach((h, i) => {
+      selects.forEach(s => {
+        let opt = document.createElement('option');
+        opt.value = i; 
+        opt.text = `[${i+1}列目] ${h}`;
+        s.appendChild(opt);
+      });
+    });
+    
+    if(window.adminTempMaps) {
+      document.getElementById('map-name').value = window.adminTempMaps.name;
+      document.getElementById('map-id').value = window.adminTempMaps.id;
+      document.getElementById('map-class').value = window.adminTempMaps.cls;
+      document.getElementById('map-num').value = window.adminTempMaps.num;
+    }
+  }).getHeadersFromSheet(row);
 }
 
 function saveSettings() {
   const assignId = document.getElementById('admin-assign-id').value.trim();
   const quizId = document.getElementById('admin-quiz-id').value.trim();
-  const idFlag = document.getElementById('admin-id-flag').value.trim();
+  
+  const mapName = document.getElementById('map-name').value;
+  const mapId = document.getElementById('map-id').value;
+  const mapClass = document.getElementById('map-class').value;
+  const mapNum = document.getElementById('map-num').value;
+  const rosterCols = document.getElementById('admin-roster-cols').value;
+  const headerRows = document.getElementById('admin-header-row').value;
   
   document.querySelectorAll('button').forEach(b => b.disabled = true);
   
@@ -175,7 +226,7 @@ function saveSettings() {
   }).withFailureHandler(err => {
     alert("エラー: " + err.message);
     document.querySelectorAll('button').forEach(b => b.disabled = false);
-  }).saveAdminSettingsFromUI(assignId, quizId, idFlag);
+  }).saveAdminSettingsFromUI(assignId, quizId, mapName, mapId, mapClass, mapNum, rosterCols, headerRows);
 }
 
 // --- 入力モードの制御 ---
