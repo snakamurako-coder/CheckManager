@@ -55,8 +55,12 @@ function setupAppEnvironment() {
   Logger.log("セットアップ完了！マイドライブの「課題点検アプリ_システムフォルダ」を確認してください。");
 }
 
-function createSampleSheet(sheet) {
-  sheet.setName("1組");
+function createSampleSheet(sheet, desiredName = "1組") {
+  try {
+    sheet.setName(desiredName);
+  } catch(e) {
+    Logger.log("Failed to set sheet name: " + desiredName);
+  }
   const headers = [
     ["組","番号","ID","氏名","性別","提出率","提出数", 1, 2, 3, 4, 5],
     ["","","","","","", "提出率→", "=(COUNTIF(H6:H50,\"提\"))/40", "", "", "", ""],
@@ -376,6 +380,78 @@ function submitAttendanceData(bookType, className, taskIndex, taskName, dataArra
   clearUserState();
   
   return ss.getUrl();
+}
+
+function importRosterFromTSV(bookType, className, parsedData, mapping) {
+  const ss = getAppSpreadsheet(bookType);
+  if (!ss) throw new Error("対象ブックが設定されていません。");
+  
+  let sheet = ss.getSheetByName(className);
+  let isNew = false;
+  if (!sheet) {
+    sheet = ss.insertSheet(className);
+    isNew = true;
+    createSampleSheet(sheet, className);
+  }
+  
+  const settings = getAdminSettings();
+  const mapName = parseInt(settings.COL_MAP_NAME) || 3;
+  const mapId = parseInt(settings.COL_MAP_ID) || 2;
+  const mapClass = parseInt(settings.COL_MAP_CLASS) || 0;
+  const mapNum = parseInt(settings.COL_MAP_NUMBER) || 1;
+  const rosterCols = parseInt(settings.ROSTER_COLS) || 7;
+  
+  const targetCols = {
+    'name': mapName,
+    'id': mapId,
+    'group': mapClass,
+    'no': mapNum,
+    'gender': 4 
+  };
+  
+  let maxTargetCol = 0;
+  mapping.forEach(field => {
+    if (field !== 'ignore' && targetCols[field] !== undefined) {
+      if (targetCols[field] > maxTargetCol) maxTargetCol = targetCols[field];
+    }
+  });
+  
+  const startRow = 6;
+  if (!isNew && sheet.getLastRow() >= startRow) {
+    sheet.getRange(startRow, 1, sheet.getLastRow() - startRow + 1, maxTargetCol + 1).clearContent();
+  }
+  
+  if (parsedData.length === 0) return true;
+  
+  let outputData = [];
+  for (let r = 0; r < parsedData.length; r++) {
+    let rowOut = new Array(maxTargetCol + 1).fill("");
+    const rowIn = parsedData[r];
+    
+    for (let c = 0; c < mapping.length; c++) {
+      const field = mapping[c];
+      if (field !== 'ignore' && targetCols[field] !== undefined) {
+        if (c < rowIn.length) {
+          rowOut[targetCols[field]] = rowIn[c];
+        }
+      }
+    }
+    outputData.push(rowOut);
+  }
+  
+  sheet.getRange(startRow, 1, outputData.length, maxTargetCol + 1).setValues(outputData);
+  
+  const maxRow = startRow + outputData.length - 1;
+  if (maxRow >= 6) {
+    const startColForFormulas = maxTargetCol + 2; // targetCol is 0-indexed, so maxTargetCol+2 is 1-indexed formula start
+    if (startColForFormulas <= rosterCols) {
+      const formulaRange = sheet.getRange(startRow, startColForFormulas, 1, rosterCols - startColForFormulas + 1);
+      const destRange = sheet.getRange(startRow, startColForFormulas, outputData.length, rosterCols - startColForFormulas + 1);
+      formulaRange.copyTo(destRange, SpreadsheetApp.CopyPasteType.PASTE_NORMAL, false);
+    }
+  }
+  
+  return true;
 }
 
 function logToConfig(className, type, detail) {

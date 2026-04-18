@@ -98,6 +98,34 @@
               <input type="number" id="admin-roster-cols" class="admin-input" value="7">
             </div>
           </div>
+
+          <hr style="margin: 30px 0 20px 0; border: none; border-top: 1px solid #ccc;">
+          <h4 style="color: #1a73e8; margin-top: 0;">名簿のTSVインポート</h4>
+          <p style="font-size: 12px; color: #666; margin-bottom: 15px;">Excelなどからコピーした名簿データを貼り付けて一括登録します。数式列（提出率など）には上書きせず、設定済みの「氏名」「組」などの列にのみデータを書き込みます。</p>
+
+          <div class="input-group">
+            <label style="font-weight:bold;">登録先ブック</label>
+            <select id="tsv-target-book" class="admin-input" style="padding: 10px;">
+              <option value="assignment">提出物用ブック</option>
+              <option value="quiz">小テスト用ブック</option>
+            </select>
+          </div>
+          <div class="input-group">
+            <label style="font-weight:bold;">クラス名 (シート名)</label>
+            <input type="text" id="tsv-class-name" class="admin-input" placeholder="例: 1組">
+          </div>
+          <div class="input-group">
+            <label style="font-weight:bold;">TSVデータ貼り付け</label>
+            <textarea id="tsv-data" class="admin-input" rows="5" placeholder="データをここにペーストしてください" style="width:100%; padding: 10px; font-size: 14px; border-radius: 8px; border: 1px solid #ccc;"></textarea>
+          </div>
+          <button class="nav-btn" onclick="parseTSV()" style="width: 100%; margin-bottom: 15px;">データを解析する</button>
+
+          <div id="tsv-mapping-container" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 15px;">
+            <p style="font-size: 12px; color: #666;">読み込んだデータの1行目です。各列が「提出先ブックのどの項目」に対応するか選んでください。</p>
+            <div id="tsv-columns" style="margin-bottom: 15px;"></div>
+            <button class="btn-primary" onclick="executeTSVImport()" id="btn-execute-tsv">スプレッドシートに登録</button>
+          </div>
+
         </div>
         <div>
           <button class="btn-primary" onclick="saveSettings()">設定を保存して再読込</button>

@@ -148,6 +148,85 @@ function saveNewTask() {
   }).createNewTask(state.bookType, state.currentClass, dateStr, nameStr);
 }
 
+window.parsedTSVData = [];
+
+function parseTSV() {
+  const text = document.getElementById('tsv-data').value.trim();
+  if (!text) {
+    alert("TSVデータが入力されていません。");
+    return;
+  }
+  
+  window.parsedTSVData = text.split('\n').map(line => line.split('\t'));
+  if (window.parsedTSVData.length === 0) return;
+  
+  const firstRow = window.parsedTSVData[0];
+  const container = document.getElementById('tsv-columns');
+  container.innerHTML = '';
+  
+  firstRow.forEach((val, i) => {
+    let div = document.createElement('div');
+    div.className = 'input-group';
+    div.style.display = 'flex';
+    div.style.alignItems = 'center';
+    div.style.marginBottom = '10px';
+    
+    let sample = document.createElement('div');
+    sample.style.flex = '1';
+    sample.style.overflow = 'hidden';
+    sample.style.textOverflow = 'ellipsis';
+    sample.style.whiteSpace = 'nowrap';
+    sample.innerText = `[${i+1}列目] ${val}`;
+    
+    let select = document.createElement('select');
+    select.className = 'tsv-map-select';
+    select.style.flex = '1';
+    select.style.padding = '8px';
+    select.innerHTML = `
+      <option value="ignore">-- 無視する --</option>
+      <option value="name">氏名</option>
+      <option value="id">ID</option>
+      <option value="group">組</option>
+      <option value="no">番号</option>
+      <option value="gender">性別</option>
+    `;
+    
+    div.appendChild(sample);
+    div.appendChild(select);
+    container.appendChild(div);
+  });
+  
+  document.getElementById('tsv-mapping-container').style.display = 'block';
+}
+
+function executeTSVImport() {
+  const bookType = document.getElementById('tsv-target-book').value;
+  const className = document.getElementById('tsv-class-name').value.trim();
+  if (!className) {
+    alert("クラス名を入力してください。");
+    return;
+  }
+  
+  const selects = document.querySelectorAll('.tsv-map-select');
+  const mapping = Array.from(selects).map(s => s.value);
+  
+  document.getElementById('btn-execute-tsv').disabled = true;
+  document.getElementById('btn-execute-tsv').innerText = "登録中...";
+  
+  google.script.run.withSuccessHandler(() => {
+    alert("インポートが完了しました。");
+    document.getElementById('btn-execute-tsv').disabled = false;
+    document.getElementById('btn-execute-tsv').innerText = "スプレッドシートに登録";
+    document.getElementById('tsv-data').value = "";
+    document.getElementById('tsv-mapping-container').style.display = 'none';
+    reloadClassList();
+  }).withFailureHandler(err => {
+    alert("エラー: " + err.message);
+    document.getElementById('btn-execute-tsv').disabled = false;
+    document.getElementById('btn-execute-tsv').innerText = "スプレッドシートに登録";
+  }).importRosterFromTSV(bookType, className, window.parsedTSVData, mapping);
+}
+
 // --- 管理者設定の制御 ---
 function openAdminSettings() {
   document.getElementById('setup-view').style.display = 'none';
