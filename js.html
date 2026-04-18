@@ -1,19 +1,68 @@
 <script>
 let state = {
+  bookType: 'assignment', // 'assignment' or 'quiz'
+  currentClass: '',
+  taskIndex: 0,
+  taskName: '',
+  mode: 0, // 1 or 2
   students: [],
-  results: [], // 一時保存用配列
-  currentIndex: 0,
-  currentClass: "",
-  taskIndex: 0
+  results: [],
+  currentIndex: 0
 };
 
-// ページ読み込み時の処理
+// Mode 2 local vars
+let tempNumStr = "";
+let refQuizState = "number"; // "number" or "score"
+let refTargetIdx = -1;
+
 window.onload = () => {
-  reloadClassList();
+  // Check if there is a saved state
+  google.script.run.withSuccessHandler(savedState => {
+    if (savedState && savedState.currentClass && savedState.results) {
+      if (confirm("前回の入力途中のデータがあります。再開しますか？\n（キャンセルすると破棄して新規開始します）")) {
+        state = savedState;
+        restoreStateUI();
+        return;
+      } else {
+        google.script.run.clearUserState();
+      }
+    }
+    // Normal start
+    setBookType('assignment');
+  }).loadUserState();
 };
+
+function restoreStateUI() {
+  document.getElementById('setup-view').style.display = 'none';
+  
+  // Restore Book Type toggle visually
+  document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`book-toggle-${state.bookType === 'quiz' ? 'quiz' : 'assign'}`).classList.add('active');
+
+  if (state.mode === 1) {
+    document.getElementById('sequential-view').style.display = 'flex';
+    setupSeqView();
+    updateSeqDisplay();
+  } else if (state.mode === 2) {
+    document.getElementById('reference-view').style.display = 'flex';
+    setupRefView();
+  } else {
+    showSetup();
+  }
+}
+
+function setBookType(type) {
+  state.bookType = type;
+  document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`book-toggle-${type === 'quiz' ? 'quiz' : 'assign'}`).classList.add('active');
+  reloadClassList();
+}
 
 function reloadClassList() {
   document.getElementById('class-select').innerHTML = '<option>読み込み中...</option>';
+  document.getElementById('task-select').innerHTML = '';
+  document.getElementById('new-task-container').style.display = 'none';
+  
   google.script.run.withSuccessHandler(list => {
     const select = document.getElementById('class-select');
     select.innerHTML = '';
@@ -23,7 +72,7 @@ function reloadClassList() {
       select.add(opt);
     });
     loadClassData();
-  }).getClassList();
+  }).getClassList(state.bookType);
 }
 
 function loadClassData() {
@@ -31,18 +80,36 @@ function loadClassData() {
   if (!className) return;
   
   google.script.run.withSuccessHandler(data => {
+    if(!data) {
+      alert("クラスデータの読み込みに失敗しました。"); return;
+    }
     state.students = data.students;
     state.results = new Array(data.students.length).fill("");
+    state.currentClass = className;
     
     const taskSel = document.getElementById('task-select');
     taskSel.innerHTML = "";
     data.tasks.forEach((t, i) => {
       let opt = document.createElement('option');
       opt.value = i; 
-      opt.text = t || `新規課題(列${i+1})`; // 空欄なら新規
+      opt.text = t || `(新規列: ${i+1}列目)`; 
       taskSel.add(opt);
     });
-  }).getClassData(className);
+    checkNewTask();
+    
+    taskSel.onchange = checkNewTask;
+  }).getClassData(state.bookType, className);
+}
+
+function checkNewTask() {
+  const taskSel = document.getElementById('task-select');
+  const selectedText = taskSel.options[taskSel.selectedIndex].text;
+  const newContainer = document.getElementById('new-task-container');
+  if (selectedText.includes('(新規列')) {
+    newContainer.style.display = 'block';
+  } else {
+    newContainer.style.display = 'none';
+  }
 }
 
 // --- 管理者設定の制御 ---
@@ -51,62 +118,107 @@ function openAdminSettings() {
   document.getElementById('admin-view').style.display = 'flex';
   
   google.script.run.withSuccessHandler(settings => {
-    document.getElementById('target-ss-id').value = settings.targetSsId || '';
-    document.getElementById('pass-score').value = settings.passScore || '80';
+    document.getElementById('admin-assign-id').value = settings.ASSIGNMENT_SS_ID || '';
+    document.getElementById('admin-quiz-id').value = settings.QUIZ_SS_ID || '';
+    document.getElementById('admin-id-flag').value = settings.ID_USE_FLAG || 'false';
   }).getAdminSettings();
 }
 
 function saveSettings() {
-  const id = document.getElementById('target-ss-id').value.trim();
-  const score = document.getElementById('pass-score').value;
+  const assignId = document.getElementById('admin-assign-id').value.trim();
+  const quizId = document.getElementById('admin-quiz-id').value.trim();
+  const idFlag = document.getElementById('admin-id-flag').value.trim();
   
   google.script.run.withSuccessHandler(() => {
-    // 保存後、設定を反映するためにクラスリストを再読み込み
     google.script.run.withSuccessHandler(() => {
-      alert("設定を保存し、対象ブックを更新しました。");
-      showSetup();
-      reloadClassList(); 
-    }).updateConfigValue("PASS_SCORE", score);
-  }).updateConfigValue("TARGET_SS_ID", id);
+      google.script.run.withSuccessHandler(() => {
+        alert("設定を保存しました。");
+        showSetup();
+        reloadClassList(); 
+      }).updateConfigValue("ID_USE_FLAG", idFlag);
+    }).updateConfigValue("QUIZ_SS_ID", quizId);
+  }).updateConfigValue("ASSIGNMENT_SS_ID", assignId);
 }
 
 // --- 入力モードの制御 ---
 function startMode(mode) {
   state.taskIndex = document.getElementById('task-select').value;
-  state.currentClass = document.getElementById('class-select').value;
+  
+  const taskSel = document.getElementById('task-select');
+  const selectedText = taskSel.options[taskSel.selectedIndex].text;
+  if (selectedText.includes('(新規列')) {
+    state.taskName = document.getElementById('new-task-name').value.trim();
+  } else {
+    state.taskName = "";
+  }
+
+  state.mode = mode;
   document.getElementById('setup-view').style.display = 'none';
   
   if (mode === 1) {
     state.currentIndex = 0;
     document.getElementById('sequential-view').style.display = 'flex';
+    setupSeqView();
     updateSeqDisplay();
   } else {
     document.getElementById('reference-view').style.display = 'flex';
-    tempNum = ""; // テンキーリセット
-    document.getElementById('ref-input').value = "";
-    document.getElementById('ref-name-display').innerText = "番号を入力してください";
+    setupRefView();
+  }
+  autoSave();
+}
+
+function autoSave() {
+  google.script.run.saveUserState(state);
+}
+
+function saveAndExit() {
+  autoSave();
+  showSetup();
+}
+
+function showSetup() {
+  document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
+  document.getElementById('setup-view').style.display = 'flex';
+}
+
+// ==========================================
+// Mode 1: 順次入力 (Sequential)
+// ==========================================
+function setupSeqView() {
+  if (state.bookType === 'assignment') {
+    document.getElementById('seq-assign-actions').style.display = 'grid';
+    document.getElementById('seq-quiz-actions').style.display = 'none';
+  } else {
+    document.getElementById('seq-assign-actions').style.display = 'none';
+    document.getElementById('seq-quiz-actions').style.display = 'block';
+    tempNumStr = "";
+    document.getElementById('seq-quiz-score').innerText = "_";
   }
 }
 
-// ① 出席番号順モード
 function updateSeqDisplay() {
   const s = state.students[state.currentIndex];
   document.getElementById('seq-name').innerText = `${s.no}番：${s.name}`;
   document.getElementById('seq-current-info').innerText = `${state.currentIndex + 1} / ${state.students.length} 人目`;
   
-  // 最後の生徒まで行ったら確定ボタンを表示
   if (state.currentIndex === state.students.length - 1) {
     document.getElementById('submit-btn-seq').style.display = 'block';
   } else {
     document.getElementById('submit-btn-seq').style.display = 'none';
   }
-}
 
-function record(val) {
-  state.results[state.currentIndex] = val;
-  if (state.currentIndex < state.students.length - 1) {
-    state.currentIndex++;
-    updateSeqDisplay();
+  // Quiz mode: show current score if already input
+  if (state.bookType === 'quiz') {
+    const currentVal = state.results[state.currentIndex];
+    if (currentVal !== "" && currentVal !== null) {
+      document.getElementById('seq-quiz-score').innerText = currentVal;
+      document.getElementById('seq-quiz-score').style.color = '#188038'; // green
+      tempNumStr = String(currentVal);
+    } else {
+      document.getElementById('seq-quiz-score').innerText = "_";
+      document.getElementById('seq-quiz-score').style.color = '#1a73e8';
+      tempNumStr = "";
+    }
   }
 }
 
@@ -117,51 +229,203 @@ function prevStudent() {
   }
 }
 
-// ② テンキー参照モード
-let tempNum = "";
-function kp(val) {
-  const display = document.getElementById('ref-name-display');
-  const inputEl = document.getElementById('ref-input');
-  
-  if (typeof val === 'number') {
-    tempNum += val;
-    inputEl.value = tempNum;
-    const student = state.students.find(s => s.no == tempNum);
-    if (student) {
-      // 既に入力済みの場合は表示
-      const currentVal = state.results[state.students.indexOf(student)];
-      display.innerText = `${student.name} ${currentVal ? `(入力済:${currentVal})` : ''}`;
-      if (currentVal) {
-        display.style.color = '#d93025'; // 入力済み警告色
-      } else {
-        display.style.color = '#333';
-      }
-    } else {
-      display.innerText = "該当者なし";
-      display.style.color = '#333';
-    }
-  } else if (val === 'Del') {
-    tempNum = "";
-    inputEl.value = "";
-    display.innerText = "番号を入力してください";
-    display.style.color = '#333';
+// Mode 1 Assign actions
+function recordSeqAssign(val) {
+  state.results[state.currentIndex] = val;
+  autoSave();
+  if (state.currentIndex < state.students.length - 1) {
+    state.currentIndex++;
+    updateSeqDisplay();
   } else {
-    // 提・未・再・休 の入力処理
-    const idx = state.students.findIndex(s => s.no == tempNum);
-    if (idx !== -1) {
-      state.results[idx] = val;
-      display.innerText = `${state.students[idx].name} → [${val}] 保存`;
-      display.style.color = '#188038'; // 成功色
-      setTimeout(() => { kp('Del'); }, 800); // 0.8秒後にクリア
+    updateSeqDisplay(); // Refresh to show submit button
+  }
+}
+
+// Mode 1 Quiz actions
+function kpSeq(val) {
+  const display = document.getElementById('seq-quiz-score');
+  display.style.color = '#333';
+  if (typeof val === 'number') {
+    tempNumStr += val;
+    display.innerText = tempNumStr;
+  } else if (val === 'Del') {
+    tempNumStr = tempNumStr.slice(0, -1);
+    display.innerText = tempNumStr || "_";
+  } else if (val === 'Enter') {
+    if (tempNumStr !== "") {
+      state.results[state.currentIndex] = tempNumStr;
+      autoSave();
+      if (state.currentIndex < state.students.length - 1) {
+        state.currentIndex++;
+        updateSeqDisplay();
+      } else {
+        updateSeqDisplay();
+      }
     }
   }
 }
 
-// スプレッドシートへの一括書き込み
-function confirmData() {
-  if (!confirm("入力データをスプレッドシートに反映しますか？")) return;
+// ==========================================
+// Mode 2: 番号参照入力 (Reference)
+// ==========================================
+function setupRefView() {
+  tempNumStr = "";
+  document.getElementById('ref-input').value = "";
   
-  // 送信中のUIロック処理（連打防止）
+  if (state.bookType === 'assignment') {
+    document.getElementById('ref-assign-keypad').style.display = 'grid';
+    document.getElementById('ref-quiz-keypad').style.display = 'none';
+    document.getElementById('ref-name-display').innerText = "番号を入力";
+    document.getElementById('ref-status-display').innerText = "";
+  } else {
+    document.getElementById('ref-assign-keypad').style.display = 'none';
+    document.getElementById('ref-quiz-keypad').style.display = 'grid';
+    refQuizState = "number";
+    document.getElementById('ref-name-display').innerText = "番号を入力";
+    document.getElementById('ref-status-display').innerText = "【出席番号 入力】";
+  }
+}
+
+// --- Mode 2 Assign ---
+function kpRef(val) {
+  const display = document.getElementById('ref-name-display');
+  const inputEl = document.getElementById('ref-input');
+  const statusEl = document.getElementById('ref-status-display');
+  
+  if (typeof val === 'number') {
+    tempNumStr += val;
+    inputEl.value = tempNumStr;
+    const student = state.students.find(s => s.no == tempNumStr);
+    if (student) {
+      const idx = state.students.indexOf(student);
+      const currentVal = state.results[idx];
+      display.innerText = `${student.name}`;
+      if (currentVal) {
+        statusEl.innerText = `(入力済:${currentVal})`;
+        statusEl.style.color = '#d93025';
+      } else {
+        statusEl.innerText = "";
+      }
+    } else {
+      display.innerText = "該当者なし";
+      statusEl.innerText = "";
+    }
+  } else if (val === 'Del') {
+    tempNumStr = tempNumStr.slice(0, -1);
+    inputEl.value = tempNumStr;
+    // re-trigger logic manually or leave it simple
+    if(!tempNumStr) {
+      display.innerText = "番号を入力";
+      statusEl.innerText = "";
+    }
+  } else if (val === 'Clear') {
+    tempNumStr = "";
+    inputEl.value = "";
+    display.innerText = "番号を入力";
+    statusEl.innerText = "";
+  }
+}
+
+function recordRefAssign(val) {
+  const display = document.getElementById('ref-name-display');
+  const inputEl = document.getElementById('ref-input');
+  const statusEl = document.getElementById('ref-status-display');
+  
+  const idx = state.students.findIndex(s => s.no == tempNumStr);
+  if (idx !== -1) {
+    state.results[idx] = val;
+    autoSave();
+    display.innerText = `${state.students[idx].name} → [${val}] 保存`;
+    display.style.color = '#188038';
+    statusEl.innerText = "";
+    
+    // Auto clear after short delay
+    setTimeout(() => { 
+      tempNumStr = ""; 
+      inputEl.value = ""; 
+      display.innerText = "番号を入力"; 
+      display.style.color = '#333';
+    }, 800);
+  }
+}
+
+// --- Mode 2 Quiz ---
+function kpRefQuiz(val) {
+  const display = document.getElementById('ref-name-display');
+  const inputEl = document.getElementById('ref-input');
+  const statusEl = document.getElementById('ref-status-display');
+  
+  if (refQuizState === "number") {
+    if (typeof val === 'number') {
+      tempNumStr += val;
+      inputEl.value = tempNumStr;
+      
+      const student = state.students.find(s => s.no == tempNumStr);
+      if (student) {
+        display.innerText = student.name;
+        const currentVal = state.results[state.students.indexOf(student)];
+        if (currentVal) {
+          statusEl.innerText = `(入力済:${currentVal}) 【Enterで得点入力へ】`;
+          statusEl.style.color = '#d93025';
+        } else {
+          statusEl.innerText = "【出席番号 入力】 (Enterで次へ)";
+          statusEl.style.color = '#1a73e8';
+        }
+      } else {
+        display.innerText = "該当者なし";
+      }
+    } else if (val === 'Del') {
+      tempNumStr = tempNumStr.slice(0, -1);
+      inputEl.value = tempNumStr;
+    } else if (val === 'Enter') {
+      const idx = state.students.findIndex(s => s.no == tempNumStr);
+      if (idx !== -1) {
+        refTargetIdx = idx;
+        refQuizState = "score";
+        tempNumStr = "";
+        inputEl.value = "";
+        display.innerText = `${state.students[idx].name} の得点`;
+        statusEl.innerText = "【得点 入力】";
+        statusEl.style.color = '#e37400';
+      }
+    }
+  } 
+  else if (refQuizState === "score") {
+    if (typeof val === 'number') {
+      tempNumStr += val;
+      inputEl.value = tempNumStr;
+    } else if (val === 'Del') {
+      tempNumStr = tempNumStr.slice(0, -1);
+      inputEl.value = tempNumStr;
+    } else if (val === 'Enter') {
+      if (tempNumStr !== "") {
+        state.results[refTargetIdx] = tempNumStr;
+        autoSave();
+        display.innerText = `保存済: ${tempNumStr}点`;
+        display.style.color = '#188038';
+        statusEl.innerText = "";
+        
+        setTimeout(() => {
+          refQuizState = "number";
+          tempNumStr = "";
+          inputEl.value = "";
+          display.innerText = "番号を入力";
+          display.style.color = '#333';
+          statusEl.innerText = "【出席番号 入力】";
+          statusEl.style.color = '#1a73e8';
+        }, 800);
+      }
+    }
+  }
+}
+
+// ==========================================
+// スプレッドシートへの一括書き込み
+// ==========================================
+function confirmData() {
+  if (!confirm("入力データをスプレッドシートに反映しますか？\n（確定後、一時保存データは消去されます）")) return;
+  
+  // 送信中のUIロック処理
   document.querySelectorAll('button').forEach(b => b.disabled = true);
   
   google.script.run.withSuccessHandler(url => {
@@ -170,16 +434,13 @@ function confirmData() {
     if (confirm("スプレッドシートを開いて確認しますか？")) {
       window.open(url, '_blank');
     }
+    // Clear state
+    state.results = new Array(state.students.length).fill("");
+    state.currentIndex = 0;
     showSetup();
   }).withFailureHandler(err => {
     alert("エラーが発生しました: " + err.message);
     document.querySelectorAll('button').forEach(b => b.disabled = false);
-  }).submitAttendanceData(state.currentClass, state.taskIndex, state.results);
-}
-
-// 設定画面に戻る
-function showSetup() {
-  document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
-  document.getElementById('setup-view').style.display = 'flex';
+  }).submitAttendanceData(state.bookType, state.currentClass, state.taskIndex, state.taskName, state.results);
 }
 </script>

@@ -23,14 +23,22 @@ function setupAppEnvironment() {
   // Config: アプリ設定シート
   let settingsSheet = configSs.insertSheet("アプリ設定");
   settingsSheet.appendRow(["項目", "値", "説明"]);
-  settingsSheet.appendRow(["TARGET_SS_ID", "", "現在点検中のスプレッドシートID"]);
+  settingsSheet.appendRow(["ASSIGNMENT_SS_ID", "", "提出物用スプレッドシートID"]);
+  settingsSheet.appendRow(["QUIZ_SS_ID", "", "小テスト用スプレッドシートID"]);
   settingsSheet.appendRow(["PASS_SCORE", "80", "小テスト合格点"]);
+  settingsSheet.appendRow(["ID_USE_FLAG", "false", "IDから組・番号を抽出するか(true/false)"]);
+  settingsSheet.appendRow(["ID_CLASS_START", "1", "組抽出の開始文字位置(1始まり)"]);
+  settingsSheet.appendRow(["ID_CLASS_LEN", "1", "組抽出の文字数"]);
+  settingsSheet.appendRow(["ID_NUMBER_START", "2", "番号抽出の開始文字位置(1始まり)"]);
+  settingsSheet.appendRow(["ID_NUMBER_LEN", "2", "番号抽出の文字数"]);
+  settingsSheet.appendRow(["HEADER_ROWS", "5", "見出し行数"]);
+  settingsSheet.appendRow(["ROSTER_COLS", "7", "名簿部分の列数"]);
 
-  // Config: ログシート
+  // Config: 利用ログシート
   let logSheet = configSs.insertSheet("利用ログ");
   logSheet.appendRow(["タイムスタンプ", "ユーザー", "操作", "クラス", "内容"]);
 
-  // 3. サンプル点検票ブック作成（ご提示の構成を再現）
+  // 3. サンプル点検票ブック作成
   let sampleSs = SpreadsheetApp.create("【サンプル】点検票ブック");
   DriveApp.getFileById(sampleSs.getId()).moveTo(folder);
   createSampleSheet(sampleSs.getSheets()[0]);
@@ -42,32 +50,31 @@ function setupAppEnvironment() {
   });
   
   // 初期設定としてサンプルをターゲットに設定
-  updateConfigValue("TARGET_SS_ID", sampleSs.getId());
+  updateConfigValue("ASSIGNMENT_SS_ID", sampleSs.getId());
+  updateConfigValue("QUIZ_SS_ID", sampleSs.getId());
 
   Logger.log("セットアップ完了！マイドライブの「課題点検アプリ_システムフォルダ」を確認してください。");
 }
 
-/**
- * ユーザー指定の5行見出し構成を再現したサンプルシート作成
- */
 function createSampleSheet(sheet) {
   sheet.setName("1組");
   const headers = [
-    ["組","番号","ID","氏名","性別","提出率","提出数", 1, 2, 3, 4, 5], // 1行目: 通し番号
-    ["","","","","","", "提出率→", "=(COUNTIF(H6:H50,\"提\"))/40", "", "", "", ""], // 2行目: 提出率
-    ["","","","","","", "返却可否→", "済", "済", "済", "未", "未"], // 3行目: 返却
-    ["","","","日付","","","", "4/10", "4/15", "4/20", "5/1", "5/10"], // 4行目: 日付
-    ["組","番号","ID","氏名","性別","提出率","提出数", "課題A", "課題B", "小テスト1", "課題C", "小テスト2"] // 5行目: 課題名
+    ["組","番号","ID","氏名","性別","提出率","提出数", 1, 2, 3, 4, 5],
+    ["","","","","","", "提出率→", "=(COUNTIF(H6:H50,\"提\"))/40", "", "", "", ""],
+    ["","","","","","", "返却可否→", "済", "済", "済", "未", "未"],
+    ["","","","日付","","","", "4/10", "4/15", "4/20", "5/1", "5/10"],
+    ["組","番号","ID","氏名","性別","提出率","提出数", "課題A", "課題B", "小テスト1", "課題C", "小テスト2"]
   ];
   sheet.getRange(1, 1, 5, headers[0].length).setValues(headers);
   
-  // 6行目以降にサンプル生徒データ
   let sampleStudents = [];
   for(let i=1; i<=40; i++) {
+    // IDは 101, 102 ... 140 となるようにする
+    let idStr = "1" + ("0" + i).slice(-2);
     sampleStudents.push([
       1, 
       i, 
-      "ID"+(100+i), 
+      idStr, 
       "生徒氏名"+i, 
       i%2==0 ? "女" : "男", 
       `=IF(COUNTA($H$5:$Z$5)=0, 0, G${i+5}/COUNTA($H$5:$Z$5))`, 
@@ -75,9 +82,9 @@ function createSampleSheet(sheet) {
     ]);
   }
   sheet.getRange(6, 1, 40, 7).setValues(sampleStudents);
-  sheet.getRange(6, 6, 40, 1).setNumberFormat("0.0%"); // 提出率を%表示
+  sheet.getRange(6, 6, 40, 1).setNumberFormat("0.0%");
   
-  // 条件付き書式（提:緑, 未:赤, 再:黄, 休:紫）
+  // 条件付き書式
   let range = sheet.getRange("H6:Z50");
   let rules = [
     SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("提").setBackground("#b7e1cd").setRanges([range]).build(),
@@ -87,32 +94,29 @@ function createSampleSheet(sheet) {
   ];
   sheet.setConditionalFormatRules(rules);
   
-  // 見出し固定
   sheet.setFrozenRows(5);
   sheet.setFrozenColumns(7);
 }
 
-/**
- * Webアプリ表示の分岐と初期データ渡し
- */
 function doGet() {
   const userEmail = Session.getActiveUser().getEmail();
   const role = getUserRole(userEmail);
   
   const template = HtmlService.createTemplateFromFile('index');
   template.isAdmin = (role === 'admin');
+  template.isGuest = (role === 'guest');
   template.userEmail = userEmail;
   
   return template.evaluate()
     .setTitle('課題点検・小テスト入力')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no');
 }
 
-// 権限チェック
 function getUserRole(email) {
   const configId = PropertiesService.getScriptProperties().getProperty("CONFIG_SS_ID");
   if (!configId) return 'guest'; // セットアップ前
   const sheet = SpreadsheetApp.openById(configId).getSheetByName("ユーザー管理");
+  if (!sheet) return 'guest';
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === email) return data[i][1];
@@ -120,82 +124,127 @@ function getUserRole(email) {
   return 'guest';
 }
 
-// 設定値の取得（UIから呼ばれる）
 function getAdminSettings() {
   const configId = PropertiesService.getScriptProperties().getProperty("CONFIG_SS_ID");
   const sheet = SpreadsheetApp.openById(configId).getSheetByName("アプリ設定");
   const data = sheet.getDataRange().getValues();
-  return {
-    targetSsId: data[1][1],
-    passScore: data[2][1]
-  };
+  let settings = {};
+  for(let i=1; i<data.length; i++){
+    settings[data[i][0]] = data[i][1];
+  }
+  return settings;
 }
 
-// 設定値の更新（UIから呼ばれる）
 function updateConfigValue(key, value) {
   const configId = PropertiesService.getScriptProperties().getProperty("CONFIG_SS_ID");
   const sheet = SpreadsheetApp.openById(configId).getSheetByName("アプリ設定");
   const data = sheet.getDataRange().getValues();
+  let found = false;
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === key) {
       sheet.getRange(i + 1, 2).setValue(value);
+      found = true;
       break;
     }
   }
+  if (!found) {
+    sheet.appendRow([key, value, ""]);
+  }
 }
 
-// 共通：現在設定されている点検用スプレッドシートを取得
-function getAppSpreadsheet() {
-  const configId = PropertiesService.getScriptProperties().getProperty("CONFIG_SS_ID");
-  const sheet = SpreadsheetApp.openById(configId).getSheetByName("アプリ設定");
-  const ssId = sheet.getRange("B2").getValue(); // TARGET_SS_ID
-  // 設定がない場合はサンプルブックを読む
-  return SpreadsheetApp.openById(ssId || PropertiesService.getScriptProperties().getProperty("SAMPLE_SS_ID"));
+function saveUserState(stateObj) {
+  PropertiesService.getUserProperties().setProperty("APP_STATE", JSON.stringify(stateObj));
 }
 
-// クラス一覧（シート名）を取得
-function getClassList() {
-  const ss = getAppSpreadsheet();
-  return ss.getSheets().map(s => s.getName()).filter(name => name !== '設定');
+function loadUserState() {
+  const stateJson = PropertiesService.getUserProperties().getProperty("APP_STATE");
+  return stateJson ? JSON.parse(stateJson) : null;
 }
 
-// 選択されたクラスの名簿と既存の課題名を取得
-function getClassData(className) {
-  const ss = getAppSpreadsheet();
+function clearUserState() {
+  PropertiesService.getUserProperties().deleteProperty("APP_STATE");
+}
+
+function getAppSpreadsheet(bookType) {
+  const settings = getAdminSettings();
+  let targetId = bookType === "quiz" ? settings["QUIZ_SS_ID"] : settings["ASSIGNMENT_SS_ID"];
+  return SpreadsheetApp.openById(targetId || PropertiesService.getScriptProperties().getProperty("SAMPLE_SS_ID"));
+}
+
+function getClassList(bookType) {
+  const ss = getAppSpreadsheet(bookType);
+  return ss.getSheets().map(s => s.getName()).filter(name => !['設定', 'ユーザー管理', 'アプリ設定', '利用ログ'].includes(name));
+}
+
+function getClassData(bookType, className) {
+  const ss = getAppSpreadsheet(bookType);
   const sheet = ss.getSheetByName(className);
+  if (!sheet) return null;
   const lastRow = sheet.getLastRow();
   
-  // 名簿データは6行目〜、A列〜G列（7列分）を取得
-  const dataRows = Math.max(1, lastRow - 5);
-  const range = sheet.getRange(6, 1, dataRows, 7).getValues();
-  // 課題名は5行目のH列(8列目)から取得
-  const taskCols = Math.max(1, sheet.getLastColumn() - 7);
-  const tasks = sheet.getRange(5, 8, 1, taskCols).getValues()[0];
+  const settings = getAdminSettings();
+  const headerRows = parseInt(settings.HEADER_ROWS) || 5;
+  const rosterCols = parseInt(settings.ROSTER_COLS) || 7;
+  const idUseFlag = String(settings.ID_USE_FLAG).toLowerCase() === 'true';
+  const idClassStart = parseInt(settings.ID_CLASS_START) - 1 || 0;
+  const idClassLen = parseInt(settings.ID_CLASS_LEN) || 1;
+  const idNumStart = parseInt(settings.ID_NUMBER_START) - 1 || 0;
+  const idNumLen = parseInt(settings.ID_NUMBER_LEN) || 2;
   
-  // 配列からオブジェクトに変換
-  const students = range.map(row => ({
-    group: row[0],
-    no: row[1],
-    id: row[2],
-    name: row[3] // 氏名列
-  })).filter(s => s.name); // 空白行を除外
+  const dataRows = Math.max(1, lastRow - headerRows);
+  const range = sheet.getRange(headerRows + 1, 1, dataRows, rosterCols).getValues();
+  
+  const taskCols = Math.max(1, sheet.getLastColumn() - rosterCols);
+  const tasks = sheet.getRange(headerRows, rosterCols + 1, 1, taskCols).getValues()[0];
+  
+  const students = range.map(row => {
+    let group = row[0]; // 1列目 (A列)
+    let no = row[1];    // 2列目 (B列)
+    let id = row[2];    // 3列目 (C列)
+    let name = row[3];  // 4列目 (D列)
+    
+    if (idUseFlag && id) {
+      const idStr = String(id);
+      group = idStr.substring(idClassStart, idClassStart + idClassLen);
+      no = idStr.substring(idNumStart, idNumStart + idNumLen);
+    }
+    
+    return {
+      group: group,
+      no: no,
+      id: id,
+      name: name
+    };
+  }).filter(s => s.name);
 
   return { students: students, tasks: tasks };
 }
 
-// データの保存
-function submitAttendanceData(className, taskIndex, dataArray) {
-  const ss = getAppSpreadsheet();
+function submitAttendanceData(bookType, className, taskIndex, taskName, dataArray) {
+  const ss = getAppSpreadsheet(bookType);
   const sheet = ss.getSheetByName(className);
-  const startRow = 6;
-  const col = 8 + parseInt(taskIndex); // H列(8列目)からスタート
   
-  // 縦方向の2次元配列に変換
-  const values = dataArray.map(val => [val]);
+  const settings = getAdminSettings();
+  const headerRows = parseInt(settings.HEADER_ROWS) || 5;
+  const rosterCols = parseInt(settings.ROSTER_COLS) || 7;
+  
+  const startRow = headerRows + 1;
+  const col = rosterCols + 1 + parseInt(taskIndex);
+  
+  // 新規課題名の書き込み
+  if (taskName) {
+    const taskNameCell = sheet.getRange(headerRows, col);
+    if (!taskNameCell.getValue()) {
+      taskNameCell.setValue(taskName);
+    }
+  }
+
+  const values = dataArray.map(val => [val === null || val === undefined ? "" : val]);
   sheet.getRange(startRow, col, values.length, 1).setValues(values);
   
-  // ログ記録
-  logToConfig(className, "課題入力", `課題インデックス: ${taskIndex}`);
+  logToConfig(className, bookType === 'quiz' ? "小テスト入力" : "課題入力", `課題列: ${parseInt(taskIndex)+1}, 課題名: ${taskName || '既存'}`);
+  
+  clearUserState();
   
   return ss.getUrl();
 }
@@ -204,11 +253,12 @@ function logToConfig(className, type, detail) {
   const configId = PropertiesService.getScriptProperties().getProperty("CONFIG_SS_ID");
   if (configId) {
     const logSheet = SpreadsheetApp.openById(configId).getSheetByName("利用ログ");
-    logSheet.appendRow([new Date(), Session.getActiveUser().getEmail(), type, className, detail]);
+    if (logSheet) {
+      logSheet.appendRow([new Date(), Session.getActiveUser().getEmail(), type, className, detail]);
+    }
   }
 }
 
-// インクルード用
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
