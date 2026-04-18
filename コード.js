@@ -152,6 +152,32 @@ function updateConfigValue(key, value) {
   }
 }
 
+function saveAdminSettingsFromUI(assignId, quizId, idFlag) {
+  updateConfigValue("ASSIGNMENT_SS_ID", assignId);
+  updateConfigValue("QUIZ_SS_ID", quizId);
+  updateConfigValue("ID_USE_FLAG", idFlag);
+  
+  if (assignId) registerBookTypeMarker("assignment", assignId);
+  if (quizId) registerBookTypeMarker("quiz", quizId);
+  
+  return true;
+}
+
+function registerBookTypeMarker(bookType, ssId) {
+  try {
+    const ss = SpreadsheetApp.openById(ssId);
+    const label = bookType === 'quiz' ? '小テスト' : '提出物';
+    const sheets = ss.getSheets();
+    for (let s of sheets) {
+      if (!['設定', 'ユーザー管理', 'アプリ設定', '利用ログ'].includes(s.getName())) {
+        s.getRange("A1").setValue(label);
+      }
+    }
+  } catch(e) {
+    Logger.log("Failed to register A1 marker: " + e);
+  }
+}
+
 function saveUserState(stateObj) {
   PropertiesService.getUserProperties().setProperty("APP_STATE", JSON.stringify(stateObj));
 }
@@ -195,7 +221,45 @@ function getClassData(bookType, className) {
   const range = sheet.getRange(headerRows + 1, 1, dataRows, rosterCols).getValues();
   
   const taskCols = Math.max(1, sheet.getLastColumn() - rosterCols);
-  const tasks = sheet.getRange(headerRows, rosterCols + 1, 1, taskCols).getValues()[0];
+  
+  const headerDateRow = headerRows > 1 ? headerRows - 1 : 1;
+  const dates = sheet.getRange(headerDateRow, rosterCols + 1, 1, taskCols).getValues()[0];
+  const taskNames = sheet.getRange(headerRows, rosterCols + 1, 1, taskCols).getValues()[0];
+  
+  let taskList = [];
+  const now = new Date();
+  
+  for (let i = 0; i < taskCols; i++) {
+    let name = taskNames[i];
+    if (!name) continue; // 空の列はスキップ
+    
+    let dateVal = dates[i];
+    let dateStr = "";
+    let diff = Infinity;
+    
+    if (dateVal instanceof Date) {
+      dateStr = Utilities.formatDate(dateVal, Session.getScriptTimeZone(), "M/d");
+      diff = Math.abs(now.getTime() - dateVal.getTime());
+    } else if (dateVal) {
+      dateStr = String(dateVal);
+      let currentYear = now.getFullYear();
+      let parts = dateStr.split('/');
+      if (parts.length === 2) {
+        let parsed = new Date(currentYear, parseInt(parts[0])-1, parseInt(parts[1]));
+        diff = Math.abs(now.getTime() - parsed.getTime());
+      }
+    }
+    
+    taskList.push({
+      colIndex: i,
+      name: name,
+      date: dateStr,
+      diff: diff
+    });
+  }
+  
+  // 差が小さい順（現在に近い順）にソート
+  taskList.sort((a, b) => a.diff - b.diff);
   
   const students = range.map(row => {
     let group = row[0]; // 1列目 (A列)
@@ -217,7 +281,46 @@ function getClassData(bookType, className) {
     };
   }).filter(s => s.name);
 
-  return { students: students, tasks: tasks };
+  return { students: students, tasks: taskList };
+}
+
+function createNewTask(bookType, className, dateStr, name) {
+  const ss = getAppSpreadsheet(bookType);
+  const sheet = ss.getSheetByName(className);
+  
+  const settings = getAdminSettings();
+  const headerRows = parseInt(settings.HEADER_ROWS) || 5;
+  const rosterCols = parseInt(settings.ROSTER_COLS) || 7;
+  const headerDateRow = headerRows > 1 ? headerRows - 1 : 1;
+  
+  let targetCol = rosterCols + 1;
+  const lastCol = sheet.getLastColumn();
+  
+  if (lastCol > rosterCols) {
+    const tasks = sheet.getRange(headerRows, rosterCols + 1, 1, lastCol - rosterCols).getValues()[0];
+    let foundEmpty = false;
+    for (let i = 0; i < tasks.length; i++) {
+      if (!tasks[i]) {
+        targetCol = rosterCols + 1 + i;
+        foundEmpty = true;
+        break;
+      }
+    }
+    if (!foundEmpty) {
+      targetCol = lastCol + 1;
+    }
+  }
+  
+  if (targetCol > sheet.getMaxColumns()) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), targetCol - sheet.getMaxColumns());
+  }
+  
+  sheet.getRange(headerDateRow, targetCol).setValue(dateStr);
+  sheet.getRange(headerRows, targetCol).setValue(name);
+  
+  logToConfig(className, "新規作成", `ブック: ${bookType}, 課題名: ${name}, 日付: ${dateStr}`);
+  
+  return true;
 }
 
 function submitAttendanceData(bookType, className, taskIndex, taskName, dataArray) {
@@ -230,6 +333,10 @@ function submitAttendanceData(bookType, className, taskIndex, taskName, dataArra
   
   const startRow = headerRows + 1;
   const col = rosterCols + 1 + parseInt(taskIndex);
+  
+  if (col > sheet.getMaxColumns()) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), col - sheet.getMaxColumns());
+  }
   
   // 新規課題名の書き込み
   if (taskName) {

@@ -60,8 +60,7 @@ function setBookType(type) {
 
 function reloadClassList() {
   document.getElementById('class-select').innerHTML = '<option>読み込み中...</option>';
-  document.getElementById('task-select').innerHTML = '';
-  document.getElementById('new-task-container').style.display = 'none';
+  document.getElementById('task-select').innerHTML = '<option value="">入力内容を選んでください</option>';
   
   google.script.run.withSuccessHandler(list => {
     const select = document.getElementById('class-select');
@@ -88,14 +87,19 @@ function loadClassData() {
     state.currentClass = className;
     
     const taskSel = document.getElementById('task-select');
-    taskSel.innerHTML = "";
-    data.tasks.forEach((t, i) => {
+    taskSel.innerHTML = '<option value="">入力内容を選んでください</option>';
+    
+    let newOpt = document.createElement('option');
+    newOpt.value = 'new';
+    newOpt.text = state.bookType === 'quiz' ? 'ー新規小テスト情報を登録ー' : 'ー新規提出物情報を登録ー';
+    taskSel.add(newOpt);
+    
+    data.tasks.forEach(t => {
       let opt = document.createElement('option');
-      opt.value = i; 
-      opt.text = t || `(新規列: ${i+1}列目)`; 
+      opt.value = t.colIndex; 
+      opt.text = `${t.name} (${t.date})`; 
       taskSel.add(opt);
     });
-    checkNewTask();
     
     taskSel.onchange = checkNewTask;
   }).getClassData(state.bookType, className);
@@ -103,13 +107,45 @@ function loadClassData() {
 
 function checkNewTask() {
   const taskSel = document.getElementById('task-select');
-  const selectedText = taskSel.options[taskSel.selectedIndex].text;
-  const newContainer = document.getElementById('new-task-container');
-  if (selectedText.includes('(新規列')) {
-    newContainer.style.display = 'block';
-  } else {
-    newContainer.style.display = 'none';
+  if (taskSel.value === 'new') {
+    if (confirm("新規追加しますか？")) {
+      document.getElementById('new-task-title').innerText = state.bookType === 'quiz' ? "新規小テスト作成" : "新規提出物作成";
+      document.getElementById('new-task-date').value = "";
+      document.getElementById('new-task-name').value = "";
+      document.getElementById('new-task-modal').style.display = 'flex';
+    } else {
+      taskSel.value = ""; // キャンセル時はリセット
+    }
   }
+}
+
+function closeNewTaskModal() {
+  document.getElementById('new-task-modal').style.display = 'none';
+  const taskSel = document.getElementById('task-select');
+  if (taskSel.value === 'new') taskSel.value = "";
+}
+
+function saveNewTask() {
+  const dateStr = document.getElementById('new-task-date').value.trim();
+  const nameStr = document.getElementById('new-task-name').value.trim();
+  if (!dateStr || !nameStr) {
+    alert("日付と名称を入力してください。");
+    return;
+  }
+  
+  document.getElementById('new-task-save-btn').disabled = true;
+  document.getElementById('new-task-save-btn').innerText = "保存中...";
+  
+  google.script.run.withSuccessHandler(() => {
+    document.getElementById('new-task-modal').style.display = 'none';
+    document.getElementById('new-task-save-btn').disabled = false;
+    document.getElementById('new-task-save-btn').innerText = "保存して追加";
+    loadClassData(); // 再読み込み
+  }).withFailureHandler(err => {
+    alert("エラー: " + err.message);
+    document.getElementById('new-task-save-btn').disabled = false;
+    document.getElementById('new-task-save-btn').innerText = "保存して追加";
+  }).createNewTask(state.bookType, state.currentClass, dateStr, nameStr);
 }
 
 // --- 管理者設定の制御 ---
@@ -129,29 +165,31 @@ function saveSettings() {
   const quizId = document.getElementById('admin-quiz-id').value.trim();
   const idFlag = document.getElementById('admin-id-flag').value.trim();
   
+  document.querySelectorAll('button').forEach(b => b.disabled = true);
+  
   google.script.run.withSuccessHandler(() => {
-    google.script.run.withSuccessHandler(() => {
-      google.script.run.withSuccessHandler(() => {
-        alert("設定を保存しました。");
-        showSetup();
-        reloadClassList(); 
-      }).updateConfigValue("ID_USE_FLAG", idFlag);
-    }).updateConfigValue("QUIZ_SS_ID", quizId);
-  }).updateConfigValue("ASSIGNMENT_SS_ID", assignId);
+    alert("設定を保存し、A1セルへの反映を行いました。");
+    document.querySelectorAll('button').forEach(b => b.disabled = false);
+    showSetup();
+    reloadClassList(); 
+  }).withFailureHandler(err => {
+    alert("エラー: " + err.message);
+    document.querySelectorAll('button').forEach(b => b.disabled = false);
+  }).saveAdminSettingsFromUI(assignId, quizId, idFlag);
 }
 
 // --- 入力モードの制御 ---
 function startMode(mode) {
-  state.taskIndex = document.getElementById('task-select').value;
-  
   const taskSel = document.getElementById('task-select');
-  const selectedText = taskSel.options[taskSel.selectedIndex].text;
-  if (selectedText.includes('(新規列')) {
-    state.taskName = document.getElementById('new-task-name').value.trim();
-  } else {
-    state.taskName = "";
+  state.taskIndex = taskSel.value;
+  
+  if (!state.taskIndex || state.taskIndex === 'new') {
+    alert("入力内容を選択してください。");
+    return;
   }
 
+  state.taskName = ""; // 新規追加はモーダルで行うためここは不要
+  
   state.mode = mode;
   document.getElementById('setup-view').style.display = 'none';
   
