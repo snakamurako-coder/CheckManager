@@ -1,0 +1,185 @@
+<script>
+let state = {
+  students: [],
+  results: [], // 一時保存用配列
+  currentIndex: 0,
+  currentClass: "",
+  taskIndex: 0
+};
+
+// ページ読み込み時の処理
+window.onload = () => {
+  reloadClassList();
+};
+
+function reloadClassList() {
+  document.getElementById('class-select').innerHTML = '<option>読み込み中...</option>';
+  google.script.run.withSuccessHandler(list => {
+    const select = document.getElementById('class-select');
+    select.innerHTML = '';
+    list.forEach(name => {
+      let opt = document.createElement('option');
+      opt.value = opt.text = name;
+      select.add(opt);
+    });
+    loadClassData();
+  }).getClassList();
+}
+
+function loadClassData() {
+  const className = document.getElementById('class-select').value;
+  if (!className) return;
+  
+  google.script.run.withSuccessHandler(data => {
+    state.students = data.students;
+    state.results = new Array(data.students.length).fill("");
+    
+    const taskSel = document.getElementById('task-select');
+    taskSel.innerHTML = "";
+    data.tasks.forEach((t, i) => {
+      let opt = document.createElement('option');
+      opt.value = i; 
+      opt.text = t || `新規課題(列${i+1})`; // 空欄なら新規
+      taskSel.add(opt);
+    });
+  }).getClassData(className);
+}
+
+// --- 管理者設定の制御 ---
+function openAdminSettings() {
+  document.getElementById('setup-view').style.display = 'none';
+  document.getElementById('admin-view').style.display = 'flex';
+  
+  google.script.run.withSuccessHandler(settings => {
+    document.getElementById('target-ss-id').value = settings.targetSsId || '';
+    document.getElementById('pass-score').value = settings.passScore || '80';
+  }).getAdminSettings();
+}
+
+function saveSettings() {
+  const id = document.getElementById('target-ss-id').value.trim();
+  const score = document.getElementById('pass-score').value;
+  
+  google.script.run.withSuccessHandler(() => {
+    // 保存後、設定を反映するためにクラスリストを再読み込み
+    google.script.run.withSuccessHandler(() => {
+      alert("設定を保存し、対象ブックを更新しました。");
+      showSetup();
+      reloadClassList(); 
+    }).updateConfigValue("PASS_SCORE", score);
+  }).updateConfigValue("TARGET_SS_ID", id);
+}
+
+// --- 入力モードの制御 ---
+function startMode(mode) {
+  state.taskIndex = document.getElementById('task-select').value;
+  state.currentClass = document.getElementById('class-select').value;
+  document.getElementById('setup-view').style.display = 'none';
+  
+  if (mode === 1) {
+    state.currentIndex = 0;
+    document.getElementById('sequential-view').style.display = 'flex';
+    updateSeqDisplay();
+  } else {
+    document.getElementById('reference-view').style.display = 'flex';
+    tempNum = ""; // テンキーリセット
+    document.getElementById('ref-input').value = "";
+    document.getElementById('ref-name-display').innerText = "番号を入力してください";
+  }
+}
+
+// ① 出席番号順モード
+function updateSeqDisplay() {
+  const s = state.students[state.currentIndex];
+  document.getElementById('seq-name').innerText = `${s.no}番：${s.name}`;
+  document.getElementById('seq-current-info').innerText = `${state.currentIndex + 1} / ${state.students.length} 人目`;
+  
+  // 最後の生徒まで行ったら確定ボタンを表示
+  if (state.currentIndex === state.students.length - 1) {
+    document.getElementById('submit-btn-seq').style.display = 'block';
+  } else {
+    document.getElementById('submit-btn-seq').style.display = 'none';
+  }
+}
+
+function record(val) {
+  state.results[state.currentIndex] = val;
+  if (state.currentIndex < state.students.length - 1) {
+    state.currentIndex++;
+    updateSeqDisplay();
+  }
+}
+
+function prevStudent() {
+  if (state.currentIndex > 0) {
+    state.currentIndex--;
+    updateSeqDisplay();
+  }
+}
+
+// ② テンキー参照モード
+let tempNum = "";
+function kp(val) {
+  const display = document.getElementById('ref-name-display');
+  const inputEl = document.getElementById('ref-input');
+  
+  if (typeof val === 'number') {
+    tempNum += val;
+    inputEl.value = tempNum;
+    const student = state.students.find(s => s.no == tempNum);
+    if (student) {
+      // 既に入力済みの場合は表示
+      const currentVal = state.results[state.students.indexOf(student)];
+      display.innerText = `${student.name} ${currentVal ? `(入力済:${currentVal})` : ''}`;
+      if (currentVal) {
+        display.style.color = '#d93025'; // 入力済み警告色
+      } else {
+        display.style.color = '#333';
+      }
+    } else {
+      display.innerText = "該当者なし";
+      display.style.color = '#333';
+    }
+  } else if (val === 'Del') {
+    tempNum = "";
+    inputEl.value = "";
+    display.innerText = "番号を入力してください";
+    display.style.color = '#333';
+  } else {
+    // 提・未・再・休 の入力処理
+    const idx = state.students.findIndex(s => s.no == tempNum);
+    if (idx !== -1) {
+      state.results[idx] = val;
+      display.innerText = `${state.students[idx].name} → [${val}] 保存`;
+      display.style.color = '#188038'; // 成功色
+      setTimeout(() => { kp('Del'); }, 800); // 0.8秒後にクリア
+    }
+  }
+}
+
+// スプレッドシートへの一括書き込み
+function confirmData() {
+  if (!confirm("入力データをスプレッドシートに反映しますか？")) return;
+  
+  // 送信中のUIロック処理（連打防止）
+  document.querySelectorAll('button').forEach(b => b.disabled = true);
+  
+  google.script.run.withSuccessHandler(url => {
+    alert("保存が完了しました。");
+    document.querySelectorAll('button').forEach(b => b.disabled = false);
+    if (confirm("スプレッドシートを開いて確認しますか？")) {
+      window.open(url, '_blank');
+    }
+    showSetup();
+  }).withFailureHandler(err => {
+    alert("エラーが発生しました: " + err.message);
+    document.querySelectorAll('button').forEach(b => b.disabled = false);
+  }).submitAttendanceData(state.currentClass, state.taskIndex, state.results);
+}
+
+// 設定画面に戻る
+function showSetup() {
+  document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
+  document.getElementById('setup-view').style.display = 'flex';
+}
+</script>
