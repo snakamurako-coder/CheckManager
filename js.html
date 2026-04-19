@@ -15,8 +15,52 @@ let state = {
 
 // Mode 2 local vars
 let tempNumStr = "";
+let tempScoreStr = "";
 let refQuizState = "number"; // "number" or "score"
 let refTargetIdx = -1;
+
+function clearAllRefInputs() {
+  const ri = document.getElementById('ref-input');
+  const qn = document.getElementById('ref-q-num');
+  const qs = document.getElementById('ref-q-score');
+  if (ri) ri.value = '';
+  if (qn) qn.value = '';
+  if (qs) qs.value = '';
+}
+
+function syncQuizNumDisplay() {
+  const el = document.getElementById('ref-q-num');
+  if (el) el.value = tempNumStr;
+}
+
+function syncQuizScoreDisplay() {
+  const el = document.getElementById('ref-q-score');
+  if (el) el.value = tempScoreStr;
+}
+
+function setRefRowLayout() {
+  const std = document.getElementById('ref-cluster-std-left');
+  const qn = document.getElementById('ref-cluster-qnum');
+  const qs = document.getElementById('ref-cluster-qscore');
+  const live = document.getElementById('ref-score-live');
+  const nameEl = document.getElementById('ref-name-display');
+  if (!std || !qn || !qs || !nameEl) return;
+  if (state.bookType === 'quiz_score') {
+    std.style.display = 'none';
+    qn.style.display = 'flex';
+    qs.style.display = 'flex';
+    if (live) { live.style.display = 'none'; live.textContent = ''; }
+    nameEl.classList.remove('ref-name-wide');
+    nameEl.classList.add('ref-name-center');
+  } else {
+    std.style.display = 'block';
+    qn.style.display = 'none';
+    qs.style.display = 'none';
+    if (live) { live.style.display = 'none'; live.textContent = ''; }
+    nameEl.classList.add('ref-name-wide');
+    nameEl.classList.remove('ref-name-center');
+  }
+}
 
 /** スプレッドシートの番号列が数値/文字どちらでも照合できるようにする */
 function normalizeRefNo(v) {
@@ -597,10 +641,9 @@ function clearRefScoreLive() {
 function refTransitionToQuizScore(idx) {
   refTargetIdx = idx;
   refQuizState = "score";
-  tempNumStr = "";
-  const inputEl = document.getElementById('ref-input');
+  tempScoreStr = "";
+  syncQuizScoreDisplay();
   const statusEl = document.getElementById('ref-status-display');
-  inputEl.value = "";
   document.getElementById('ref-name-display').innerText = state.students[idx].name;
   document.getElementById('ref-status-badge').innerText = "";
   clearRefScoreLive();
@@ -619,10 +662,12 @@ function tryAutoEnterQuizScoreFromTwoDigits() {
 
 function setupRefView() {
   tempNumStr = "";
-  document.getElementById('ref-input').value = "";
+  tempScoreStr = "";
+  clearAllRefInputs();
   refQuizState = "number";
   refTargetIdx = -1;
   clearRefScoreLive();
+  setRefRowLayout();
   
   document.getElementById('ref-status-badge').innerText = "";
   document.getElementById('ref-name-display').innerText = "—";
@@ -724,7 +769,6 @@ function kpRef(val) {
 
 function recordRefAssign(val) {
   const nameEl = document.getElementById('ref-name-display');
-  const inputEl = document.getElementById('ref-input');
   const statusEl = document.getElementById('ref-status-display');
   
   let idx = -1;
@@ -748,13 +792,17 @@ function recordRefAssign(val) {
   if (state.bookType === 'quiz_score') {
     refQuizState = 'number';
     refTargetIdx = -1;
+    tempScoreStr = "";
     statusEl.innerText = "【出席番号 入力】";
     statusEl.style.color = '#1a73e8';
   }
   
   setTimeout(() => { 
-    tempNumStr = ""; 
-    inputEl.value = ""; 
+    tempNumStr = "";
+    tempScoreStr = "";
+    clearAllRefInputs();
+    syncQuizNumDisplay();
+    syncQuizScoreDisplay();
     nameEl.innerText = "—"; 
     nameEl.style.color = '#222';
     if (state.bookType !== 'quiz_score' || refQuizState === 'number') {
@@ -764,17 +812,15 @@ function recordRefAssign(val) {
   }, 800);
 }
 
-// --- Mode 2 Quiz ---
+// --- Mode 2 Quiz（点数）：左＝番号＋「番」／中央＝氏名／右＝点数＋「点」---
 function kpRefQuiz(val) {
   const nameEl = document.getElementById('ref-name-display');
-  const inputEl = document.getElementById('ref-input');
   const statusEl = document.getElementById('ref-status-display');
-  const scoreLive = document.getElementById('ref-score-live');
   
   if (refQuizState === "number") {
     if (typeof val === 'number') {
-      tempNumStr += String(val);
-      inputEl.value = tempNumStr;
+      tempNumStr = (tempNumStr + String(val)).slice(0, 2);
+      syncQuizNumDisplay();
       clearRefScoreLive();
       const badge = document.getElementById('ref-status-badge');
       const student = findStudentByRefDigits(tempNumStr);
@@ -784,12 +830,12 @@ function kpRefQuiz(val) {
         if (currentVal !== "" && currentVal !== null) {
           badge.innerText = `[入力済: ${currentVal}]`;
           badge.style.color = '#188038';
-          statusEl.innerText = state.refRequireTwoDigits ? "【得点入力へ自動移行（2桁一致時）】" : "【Enterで得点入力へ】";
+          statusEl.innerText = state.refRequireTwoDigits ? "【得点入力へ自動移行（2桁一致時）】" : "【Enterで得点へ】";
           statusEl.style.color = '#d93025';
         } else {
           badge.innerText = `[未入力]`;
           badge.style.color = '#ea4335';
-          statusEl.innerText = state.refRequireTwoDigits ? "【出席番号 入力】" : "【出席番号 入力】(Enterで次へ)";
+          statusEl.innerText = state.refRequireTwoDigits ? "【出席番号 入力】" : "【Enter または 確定】";
           statusEl.style.color = '#1a73e8';
         }
       } else {
@@ -799,10 +845,10 @@ function kpRefQuiz(val) {
       tryAutoEnterQuizScoreFromTwoDigits();
     } else if (val === 'Del') {
       tempNumStr = tempNumStr.slice(0, -1);
-      inputEl.value = tempNumStr;
+      syncQuizNumDisplay();
       clearRefScoreLive();
       const badge = document.getElementById('ref-status-badge');
-      if(!tempNumStr) {
+      if (!tempNumStr) {
         nameEl.innerText = "—";
         badge.innerText = "";
       } else {
@@ -831,21 +877,18 @@ function kpRefQuiz(val) {
   } 
   else if (refQuizState === "score") {
     if (typeof val === 'number') {
-      tempNumStr += String(val);
-      inputEl.value = tempNumStr;
-      if (scoreLive) scoreLive.textContent = tempNumStr;
+      tempScoreStr = (tempScoreStr + String(val)).slice(0, 2);
+      syncQuizScoreDisplay();
     } else if (val === 'Del') {
-      tempNumStr = tempNumStr.slice(0, -1);
-      inputEl.value = tempNumStr;
-      if (scoreLive) scoreLive.textContent = tempNumStr;
+      tempScoreStr = tempScoreStr.slice(0, -1);
+      syncQuizScoreDisplay();
     } else if (val === 'Enter') {
-      if (tempNumStr !== "") {
-        state.lastAction = { name: state.students[refTargetIdx].name, val: tempNumStr + "点" };
-        state.results[refTargetIdx] = tempNumStr;
+      if (tempScoreStr !== "") {
+        state.lastAction = { name: state.students[refTargetIdx].name, val: tempScoreStr + "点" };
+        state.results[refTargetIdx] = tempScoreStr;
         autoSave();
         nameEl.innerText = `保存: ${state.students[refTargetIdx].name}`;
         nameEl.style.color = '#188038';
-        if (scoreLive) scoreLive.textContent = tempNumStr;
         document.getElementById('ref-status-badge').innerText = "";
         statusEl.innerText = "";
         document.getElementById('ref-last-action').innerText = `💡 直前の入力: ${state.lastAction.name} → ${state.lastAction.val}`;
@@ -853,7 +896,9 @@ function kpRefQuiz(val) {
         setTimeout(() => {
           refQuizState = "number";
           tempNumStr = "";
-          inputEl.value = "";
+          tempScoreStr = "";
+          clearAllRefInputs();
+          refTargetIdx = -1;
           nameEl.innerText = "—";
           nameEl.style.color = '#222';
           clearRefScoreLive();
@@ -914,7 +959,10 @@ function confirmData() {
 
     const t = e.target;
     if (t && t.tagName === 'TEXTAREA') return;
-    if (t && t.tagName === 'INPUT' && t.id !== 'ref-input' && !t.readOnly) return;
+    if (t && t.tagName === 'INPUT') {
+      const allowReadonly = ['ref-input', 'ref-q-num', 'ref-q-score'];
+      if (!allowReadonly.includes(t.id) && !t.readOnly) return;
+    }
 
     const bt = state.bookType;
     const ch = e.key;

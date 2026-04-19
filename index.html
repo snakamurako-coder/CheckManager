@@ -207,10 +207,20 @@
         <div id="ref-last-action" style="text-align: center; color: #188038; font-size: 14px; min-height: 20px; margin-bottom: 10px; font-weight: bold;"></div>
         <div class="search-box" style="margin-bottom: 15px;">
           <div id="ref-status-display" style="text-align:center; font-weight:bold; color:#1a73e8; margin-bottom:5px;"></div>
-          <div class="ref-compact-row">
-            <input type="text" id="ref-input" readonly tabindex="-1" inputmode="numeric" autocomplete="off" class="ref-input-compact" placeholder="番号">
-            <span id="ref-name-display" class="ref-name-inline">—</span>
-            <span id="ref-score-live" class="ref-score-live" aria-live="polite"></span>
+          <div id="ref-unified-row" class="ref-unified-row">
+            <div id="ref-cluster-std-left" class="ref-cluster-std">
+              <input type="text" id="ref-input" readonly tabindex="-1" inputmode="numeric" autocomplete="off" class="ref-input-compact" placeholder="">
+            </div>
+            <div id="ref-cluster-qnum" class="ref-cluster-qnum" style="display:none;">
+              <input type="text" id="ref-q-num" readonly tabindex="-1" inputmode="numeric" autocomplete="off" class="ref-q-num-in" maxlength="2" value="">
+              <span class="ref-ban">番</span>
+            </div>
+            <span id="ref-name-display" class="ref-name-inline ref-name-center">—</span>
+            <div id="ref-cluster-qscore" class="ref-cluster-qscore" style="display:none;">
+              <input type="text" id="ref-q-score" readonly tabindex="-1" inputmode="numeric" autocomplete="off" class="ref-q-score-in" maxlength="2" value="">
+              <span class="ref-ten">点</span>
+            </div>
+            <span id="ref-score-live" class="ref-score-live" style="display:none;" aria-hidden="true"></span>
           </div>
           <div id="ref-status-badge" class="ref-badge-line"></div>
 
