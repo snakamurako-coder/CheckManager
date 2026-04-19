@@ -1,6 +1,6 @@
 <style>
   body { font-family: 'Helvetica Neue', Arial, sans-serif; margin: 0; background: #f0f2f5; color: #333; -webkit-tap-highlight-color: transparent; }
-  .view { padding: 15px; display: flex; flex-direction: column; height: 95vh; box-sizing: border-box; }
+  .view { padding: 15px; display: flex; flex-direction: column; min-height: 95vh; min-height: 100dvh; box-sizing: border-box; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
   h2, h3 { text-align: center; color: #1a73e8; margin-top: 5px; }
   
   .input-group { margin-bottom: 20px; }
@@ -31,13 +31,81 @@
   .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
   .modal-content { background-color: white; padding: 20px; border-radius: 12px; width: 85%; max-width: 400px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
   
-  /* Mode Buttons */
-  .mode-buttons { display: grid; gap: 15px; margin-top: 10px; }
-  .tile-btn { height: 120px; font-size: 18px; font-weight: bold; border: none; border-radius: 12px; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: #1a73e8; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+  /* Mode Buttons（①②選択：2列で横並び・押しやすい高さ） */
+  .mode-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+  .tile-btn { min-height: 100px; height: auto; padding: 16px 12px; font-size: 18px; font-weight: bold; border: none; border-radius: 12px; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: #1a73e8; display: flex; flex-direction: column; justify-content: center; align-items: center; }
   .tile-btn:active { background: #f0f0f0; }
+  .tile-btn.tile-nav { min-height: 72px; font-size: 17px; color: #444; }
 
   /* Displays */
   .name-display { background: white; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: bold; border-radius: 12px; margin-bottom: 15px; border: 2px solid #ddd; padding: 10px; text-align: center; }
+
+  /* 状態タイル（2×2）— index.html の action-grid / action-btn と対応 */
+  .action-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    width: 100%;
+    max-width: 420px;
+    margin: 0 auto 12px auto;
+  }
+  .action-btn {
+    min-height: 76px;
+    padding: 14px 10px;
+    font-size: 22px;
+    font-weight: bold;
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.12);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .action-btn:active { filter: brightness(0.96); }
+
+  /* スプレッドシート条件付き書式に近い配色 */
+  .action-btn.status-te,
+  .keypad-btn.status-te { background: #b7e1cd; color: #0f5132; }
+  .action-btn.status-mi,
+  .keypad-btn.status-mi { background: #f4c7c3; color: #842029; }
+  .action-btn.status-sai,
+  .keypad-btn.status-sai { background: #fce8b2; color: #664d03; }
+  .action-btn.status-kyu,
+  .keypad-btn.status-kyu { background: #d9d2e9; color: #351c75; }
+
+  /* テンキー（3列）— keypad-grid / keypad-btn */
+  .keypad-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    width: 100%;
+    max-width: 420px;
+    margin: 0 auto 12px auto;
+  }
+  .keypad-btn {
+    min-height: 54px;
+    padding: 12px 8px;
+    font-size: 22px;
+    font-weight: bold;
+    border-radius: 10px;
+    border: 1px solid #c8c8c8;
+    background: #fff;
+    color: #333;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .keypad-btn:active { background: #ececec; }
+  .keypad-btn.action-enter {
+    grid-column: span 3;
+    background: #1a73e8;
+    color: #fff;
+    border-color: #1557b0;
+    font-size: 20px;
+    min-height: 56px;
+  }
+  .keypad-btn.action-enter:active { background: #1557b0; }
+
+  .seq-nav-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; margin-bottom: 10px; }
   
   /* Buttons */
   .action-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
@@ -56,7 +124,37 @@
   .keypad button { padding: 15px; font-size: 24px; font-weight: bold; border-radius: 10px; border: 1px solid #dcdcdc; background: white; color: #333; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   .keypad button:active { background: #e8e8e8; }
   
-  .footer-nav { margin-top: auto; display: flex; justify-content: space-between; gap: 10px; }
+  .footer-nav {
+    margin-top: auto;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: stretch;
+    gap: 10px;
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    padding-top: 10px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    background: #f0f2f5;
+    box-shadow: 0 -4px 12px rgba(0,0,0,0.06);
+    border-top: 1px solid #e0e0e0;
+  }
+  .footer-nav .btn-primary,
+  .footer-nav .nav-btn { flex: 1 1 auto; min-height: 52px; }
+  .footer-nav.row { flex-direction: row; }
   
   .admin-input { margin-bottom: 5px; }
+
+  @media (max-width: 420px) {
+    .action-btn { min-height: 80px; font-size: 23px; }
+    .keypad-btn { min-height: 56px; font-size: 23px; }
+    .tile-btn { min-height: 108px; font-size: 17px; }
+    .tile-btn.tile-nav { min-height: 76px; }
+    .name-display { font-size: 24px; }
+  }
+  @media (max-width: 360px) {
+    .action-grid, .keypad-grid { gap: 8px; }
+    .action-btn { min-height: 76px; font-size: 21px; }
+  }
 </style>

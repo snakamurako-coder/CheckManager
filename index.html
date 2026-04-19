@@ -166,7 +166,7 @@
           
           <div id="seq-quiz-score-actions" style="display:none; text-align:center;">
             <div id="seq-quiz-score" style="font-size:32px; font-weight:bold; margin-bottom:10px; color:#1a73e8; min-height:40px;">_</div>
-            <div class="keypad-grid" style="max-width:300px; margin: 0 auto;">
+            <div class="keypad-grid">
               <button class="keypad-btn" onclick="kpSeq(7)">7</button>
               <button class="keypad-btn" onclick="kpSeq(8)">8</button>
               <button class="keypad-btn" onclick="kpSeq(9)">9</button>
@@ -184,9 +184,9 @@
           </div>
 
         <!-- 前後ナビゲーション -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; margin-bottom: 10px;">
-          <button class="tile-btn" onclick="prevStudent()" style="height: 60px; font-size: 18px; color: #555; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">◀ 前の生徒</button>
-          <button class="tile-btn" onclick="nextStudent()" style="height: 60px; font-size: 18px; color: #555; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">次の生徒 ▶</button>
+        <div class="seq-nav-grid">
+          <button type="button" class="tile-btn tile-nav" onclick="prevStudent()">◀ 前の生徒</button>
+          <button type="button" class="tile-btn tile-nav" onclick="nextStudent()">次の生徒 ▶</button>
         </div>
 
         <div class="footer-nav row">
@@ -221,7 +221,7 @@
           <button class="action-btn status-kyu" onclick="recordRefAssign('休')" style="grid-column: span 2;">休み</button>
         </div>
         
-        <div id="ref-quiz-score-keypad" class="keypad-grid" style="display:none; max-width:300px; margin: 0 auto;">
+        <div id="ref-quiz-score-keypad" class="keypad-grid" style="display:none;">
           <button class="keypad-btn" onclick="kpRefQuiz(7)">7</button>
           <button class="keypad-btn" onclick="kpRefQuiz(8)">8</button>
           <button class="keypad-btn" onclick="kpRefQuiz(9)">9</button>
