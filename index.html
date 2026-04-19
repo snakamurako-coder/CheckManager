@@ -189,8 +189,8 @@
           <button class="tile-btn" onclick="nextStudent()" style="height: 60px; font-size: 18px; color: #555; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">次の生徒 ▶</button>
         </div>
 
-        <div class="footer-nav" style="margin-top: auto;">
-          <button id="submit-btn-seq" style="display:none; flex-grow: 1; margin-right: 10px;" class="btn-primary" onclick="confirmData()">全入力を確定</button>
+        <div class="footer-nav row">
+          <button id="submit-btn-seq" style="display:none; flex-grow: 1;" class="btn-primary" onclick="confirmData()">全入力を確定</button>
           <button class="nav-btn" onclick="saveAndExit()" style="flex-grow: 1; padding: 15px;">中断して戻る</button>
         </div>
       </div>
@@ -199,28 +199,48 @@
       <div id="reference-view" class="view" style="display:none;">
         <div id="ref-task-header" style="text-align: center; font-weight: bold; color: #1a73e8; margin-bottom: 5px; font-size: 16px;"></div>
         <div id="ref-last-action" style="text-align: center; color: #188038; font-size: 14px; min-height: 20px; margin-bottom: 10px; font-weight: bold;"></div>
-        <button class="btn-primary" onclick="confirmData()" style="margin-bottom: 10px;">全入力を確定する</button>
-        
         <div class="search-box" style="margin-bottom: 15px;">
           <div id="ref-status-display" style="text-align:center; font-weight:bold; color:#1a73e8; margin-bottom:5px;"></div>
+          <input type="number" id="ref-input" readonly style="width:100%; box-sizing:border-box; margin-bottom: 10px; font-size: 24px; text-align: center;" placeholder="番号">
           <div class="name-display" style="height: 80px; flex-direction: column; margin: 0 0 10px 0;">
              <div id="ref-name-display" style="font-size: 20px;">番号を入力</div>
              <div id="ref-status-badge" style="font-size: 14px; margin-top: 5px;"></div>
           </div>
-          <input type="number" id="ref-input" readonly style="width:100%; box-sizing:border-box;">
         </div>
 
-        <!-- 小テスト用キーパッド (番号入力 -> 得点入力の遷移) -->
-        <div id="ref-quiz-keypad" class="keypad" style="display:none;">
-          <button onclick="kpRefQuiz(7)">7</button><button onclick="kpRefQuiz(8)">8</button><button onclick="kpRefQuiz(9)">9</button>
-          <button onclick="kpRefQuiz(4)">4</button><button onclick="kpRefQuiz(5)">5</button><button onclick="kpRefQuiz(6)">6</button>
-          <button onclick="kpRefQuiz(1)">1</button><button onclick="kpRefQuiz(2)">2</button><button onclick="kpRefQuiz(3)">3</button>
-          <button class="btn-gray" onclick="kpRefQuiz('Del')" style="color:white; font-weight:bold;">Del</button>
-          <button onclick="kpRefQuiz(0)">0</button>
-          <button class="btn-green" onclick="kpRefQuiz('Enter')" style="color:white; font-weight:bold;">入力</button>
+        <div id="ref-assign-keypad" class="action-grid" style="display:none;">
+          <button class="action-btn status-te" onclick="recordRefAssign('提')">提</button>
+          <button class="action-btn status-mi" onclick="recordRefAssign('未')">未</button>
+          <button class="action-btn status-sai" onclick="recordRefAssign('再')">再</button>
+          <button class="action-btn status-kyu" onclick="recordRefAssign('休')">休</button>
         </div>
 
-        <button class="nav-btn" onclick="saveAndExit()" style="width: 100%; margin-top: 20px;">中断して戻る</button>
+        <div id="ref-quiz-pf-keypad" class="action-grid" style="display:none;">
+          <button class="action-btn status-te" onclick="recordRefAssign('○')">合格</button>
+          <button class="action-btn status-mi" onclick="recordRefAssign('×')">不合格</button>
+          <button class="action-btn status-kyu" onclick="recordRefAssign('休')" style="grid-column: span 2;">休み</button>
+        </div>
+        
+        <div id="ref-quiz-score-keypad" class="keypad-grid" style="display:none; max-width:300px; margin: 0 auto;">
+          <button class="keypad-btn" onclick="kpRefQuiz(7)">7</button>
+          <button class="keypad-btn" onclick="kpRefQuiz(8)">8</button>
+          <button class="keypad-btn" onclick="kpRefQuiz(9)">9</button>
+          <button class="keypad-btn" onclick="kpRefQuiz(4)">4</button>
+          <button class="keypad-btn" onclick="kpRefQuiz(5)">5</button>
+          <button class="keypad-btn" onclick="kpRefQuiz(6)">6</button>
+          <button class="keypad-btn" onclick="kpRefQuiz(1)">1</button>
+          <button class="keypad-btn" onclick="kpRefQuiz(2)">2</button>
+          <button class="keypad-btn" onclick="kpRefQuiz(3)">3</button>
+          <button class="keypad-btn" onclick="kpRefQuiz('Del')">Del</button>
+          <button class="keypad-btn" onclick="kpRefQuiz(0)">0</button>
+          <button class="keypad-btn action-enter" onclick="kpRefQuiz('Enter')">確定</button>
+          <button class="keypad-btn status-kyu" style="grid-column:span 3;" onclick="recordRefAssign('休')">休み</button>
+        </div>
+
+        <div class="footer-nav">
+          <button class="btn-primary" onclick="confirmData()" style="width: 100%;">全入力を確定する</button>
+          <button class="nav-btn" onclick="saveAndExit()" style="width: 100%;">中断して戻る</button>
+        </div>
       </div>
 
       <!-- 新規登録モーダル -->
