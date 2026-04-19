@@ -151,6 +151,8 @@ function updateConfigValue(key, value) {
       break;
     }
   }
+}
+
 function saveAdminSettingsFromUI(assignId, quizId, mapName, mapId, mapClass, mapNum, rosterCols, headerRows) {
   updateConfigValue("ASSIGNMENT_SS_ID", assignId);
   updateConfigValue("QUIZ_SS_ID", quizId);
