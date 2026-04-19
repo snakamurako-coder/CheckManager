@@ -40,7 +40,7 @@ function setupAppEnvironment() {
   // 3. サンプル点検票ブック作成
   let sampleSs = SpreadsheetApp.create("【サンプル】点検票ブック");
   DriveApp.getFileById(sampleSs.getId()).moveTo(folder);
-  createSampleSheet(sampleSs.getSheets()[0]);
+  createSampleSheet(sampleSs.getSheets()[0], "1年＠入力");
 
   // 4. スクリプトプロパティへの登録
   PropertiesService.getScriptProperties().setProperties({
@@ -55,28 +55,29 @@ function setupAppEnvironment() {
   Logger.log("セットアップ完了！マイドライブの「課題点検アプリ_システムフォルダ」を確認してください。");
 }
 
-function createSampleSheet(sheet, desiredName = "1組") {
+function createSampleSheet(sheet, desiredName = "1年＠入力") {
   try {
     sheet.setName(desiredName);
   } catch(e) {
     Logger.log("Failed to set sheet name: " + desiredName);
   }
   const headers = [
-    ["組","番号","ID","氏名","性別","提出率","提出数", 1, 2, 3, 4, 5],
+    ["組","","","","","","通し番号→", 1, 2, 3, 4, 5],
     ["","","","","","", "提出率→", "=(COUNTIF(H6:H50,\"提\"))/40", "", "", "", ""],
     ["","","","","","", "返却可否→", "済", "済", "済", "未", "未"],
-    ["","","","日付","","","", "4/10", "4/15", "4/20", "5/1", "5/10"],
+    ["","","","日付","","", "提出日→", "4/10", "4/15", "4/20", "5/1", "5/10"],
     ["組","番号","ID","氏名","性別","提出率","提出数", "課題A", "課題B", "小テスト1", "課題C", "小テスト2"]
   ];
   sheet.getRange(1, 1, 5, headers[0].length).setValues(headers);
   
   let sampleStudents = [];
   for(let i=1; i<=40; i++) {
-    // IDは 101, 102 ... 140 となるようにする
-    let idStr = "1" + ("0" + i).slice(-2);
+    let group = i <= 20 ? "1組" : "2組";
+    let num = i <= 20 ? i : i - 20;
+    let idStr = (group === "1組" ? "10" : "20") + ("0" + num).slice(-2);
     sampleStudents.push([
-      1, 
-      i, 
+      group, 
+      num, 
       idStr, 
       "生徒氏名"+i, 
       i%2==0 ? "女" : "男", 
@@ -173,7 +174,7 @@ function getHeadersFromSheet(headerRow) {
   
   try {
     const ss = SpreadsheetApp.openById(assignId);
-    const sheet = ss.getSheets().find(s => !['設定', 'ユーザー管理', 'アプリ設定', '利用ログ'].includes(s.getName()));
+    const sheet = ss.getSheets().find(s => s.getName().endsWith('＠入力'));
     if (!sheet) return [];
     
     const lastCol = sheet.getLastColumn();
@@ -200,7 +201,7 @@ function registerBookTypeMarker(bookType, ssId) {
     const label = bookType === 'quiz' ? '小テスト' : '提出物';
     const sheets = ss.getSheets();
     for (let s of sheets) {
-      if (!['設定', 'ユーザー管理', 'アプリ設定', '利用ログ'].includes(s.getName())) {
+      if (s.getName().endsWith('＠入力')) {
         s.getRange("A1").setValue(label);
       }
     }
@@ -230,12 +231,52 @@ function getAppSpreadsheet(bookType) {
 
 function getClassList(bookType) {
   const ss = getAppSpreadsheet(bookType);
-  return ss.getSheets().map(s => s.getName()).filter(name => !['設定', 'ユーザー管理', 'アプリ設定', '利用ログ'].includes(name));
+  const sheets = ss.getSheets().filter(s => s.getName().endsWith('＠入力'));
+  
+  const settings = getAdminSettings();
+  const headerRows = parseInt(settings.HEADER_ROWS) || 5;
+  const mapClass = parseInt(settings.COL_MAP_CLASS) || 0;
+  
+  let classList = [];
+  sheets.forEach(sheet => {
+    const sheetName = sheet.getName();
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= headerRows) {
+      classList.push(JSON.stringify({sheetName: sheetName, group: "", displayName: sheetName}));
+      return;
+    }
+    
+    const dataRange = sheet.getRange(headerRows + 1, mapClass + 1, lastRow - headerRows, 1).getValues();
+    let groups = new Set();
+    dataRange.forEach(row => {
+      if (row[0] !== "") groups.add(String(row[0]));
+    });
+    
+    if (groups.size === 0 || (groups.size === 1 && groups.has(""))) {
+      classList.push(JSON.stringify({sheetName: sheetName, group: "", displayName: sheetName.replace("＠入力", "")}));
+    } else if (groups.size === 1) {
+      const g = Array.from(groups)[0];
+      classList.push(JSON.stringify({sheetName: sheetName, group: g, displayName: `${sheetName.replace("＠入力", "")} - ${g}`}));
+    } else {
+      Array.from(groups).sort().forEach(g => {
+        classList.push(JSON.stringify({sheetName: sheetName, group: g, displayName: `${sheetName.replace("＠入力", "")} - ${g}`}));
+      });
+    }
+  });
+  
+  return classList;
 }
 
-function getClassData(bookType, className) {
+function getClassData(bookType, classNameJSON) {
   const ss = getAppSpreadsheet(bookType);
-  const sheet = ss.getSheetByName(className);
+  let target;
+  try {
+    target = JSON.parse(classNameJSON);
+  } catch(e) {
+    target = { sheetName: classNameJSON, group: "" };
+  }
+  
+  const sheet = ss.getSheetByName(target.sheetName);
   if (!sheet) return null;
   const lastRow = sheet.getLastRow();
   
@@ -255,6 +296,8 @@ function getClassData(bookType, className) {
   const colNum = isNaN(mapNum) ? 1 : mapNum;
   
   const dataRows = Math.max(1, lastRow - headerRows);
+  if (lastRow <= headerRows) return { students: [], tasks: [] };
+  
   const range = sheet.getRange(headerRows + 1, 1, dataRows, rosterCols).getValues();
   
   const taskCols = Math.max(1, sheet.getLastColumn() - rosterCols);
@@ -298,21 +341,31 @@ function getClassData(bookType, className) {
   // 差が小さい順（現在に近い順）にソート
   taskList.sort((a, b) => a.diff - b.diff);
   
-  const students = range.map(row => {
-    return {
-      group: row[colClass],
+  let students = [];
+  for (let r = 0; r < range.length; r++) {
+    const row = range[r];
+    const groupVal = String(row[colClass]);
+    if (!row[colName]) continue;
+    
+    if (target.group && groupVal !== target.group) continue;
+    
+    students.push({
+      sheetRow: headerRows + 1 + r,
+      group: groupVal,
       no: row[colNum],
       id: row[colId],
       name: row[colName]
-    };
-  }).filter(s => s.name);
+    });
+  }
 
   return { students: students, tasks: taskList };
 }
 
-function createNewTask(bookType, className, dateStr, name) {
+function createNewTask(bookType, classNameJSON, dateStr, name) {
   const ss = getAppSpreadsheet(bookType);
-  const sheet = ss.getSheetByName(className);
+  let target;
+  try { target = JSON.parse(classNameJSON); } catch(e) { target = { sheetName: classNameJSON }; }
+  const sheet = ss.getSheetByName(target.sheetName);
   
   const settings = getAdminSettings();
   const headerRows = parseInt(settings.HEADER_ROWS) || 5;
@@ -344,14 +397,16 @@ function createNewTask(bookType, className, dateStr, name) {
   sheet.getRange(headerDateRow, targetCol).setValue(dateStr);
   sheet.getRange(headerRows, targetCol).setValue(name);
   
-  logToConfig(className, "新規作成", `ブック: ${bookType}, 課題名: ${name}, 日付: ${dateStr}`);
+  logToConfig(target.sheetName + (target.group ? ` (${target.group})` : ""), "新規作成", `ブック: ${bookType}, 課題名: ${name}, 日付: ${dateStr}`);
   
   return true;
 }
 
-function submitAttendanceData(bookType, className, taskIndex, taskName, dataArray) {
+function submitAttendanceData(bookType, classNameJSON, taskIndex, taskName, resultsWithRow) {
   const ss = getAppSpreadsheet(bookType);
-  const sheet = ss.getSheetByName(className);
+  let target;
+  try { target = JSON.parse(classNameJSON); } catch(e) { target = { sheetName: classNameJSON }; }
+  const sheet = ss.getSheetByName(target.sheetName);
   
   const settings = getAdminSettings();
   const headerRows = parseInt(settings.HEADER_ROWS) || 5;
@@ -372,27 +427,32 @@ function submitAttendanceData(bookType, className, taskIndex, taskName, dataArra
     }
   }
 
-  const values = dataArray.map(val => [val === null || val === undefined ? "" : val]);
-  sheet.getRange(startRow, col, values.length, 1).setValues(values);
+  // 生徒ごとに個別にセット
+  resultsWithRow.forEach(item => {
+    if (item.val !== null && item.val !== undefined && item.val !== "") {
+      sheet.getRange(item.sheetRow, col).setValue(item.val);
+    }
+  });
   
-  logToConfig(className, bookType === 'quiz' ? "小テスト入力" : "課題入力", `課題列: ${parseInt(taskIndex)+1}, 課題名: ${taskName || '既存'}`);
+  logToConfig(target.sheetName + (target.group ? ` (${target.group})` : ""), bookType === 'quiz' ? "小テスト入力" : "課題入力", `課題列: ${parseInt(taskIndex)+1}, 課題名: ${taskName || '既存'}`);
   
   clearUserState();
   
   return ss.getUrl();
 }
 
-function importRosterFromTSV(bookType, className, parsedData, mapping) {
+function importRosterFromTSV(bookType, targetSheetName, parsedData, mapping) {
   const ss = getAppSpreadsheet(bookType);
   if (!ss) throw new Error("対象ブックが設定されていません。");
   
-  let sheet = ss.getSheetByName(className);
-  let isNew = false;
+  let sheet = ss.getSheetByName(targetSheetName);
   if (!sheet) {
-    sheet = ss.insertSheet(className);
-    isNew = true;
-    createSampleSheet(sheet, className);
+    sheet = ss.insertSheet(targetSheetName);
+  } else {
+    sheet.clear();
   }
+  
+  createSampleSheet(sheet, targetSheetName);
   
   const settings = getAdminSettings();
   const mapName = parseInt(settings.COL_MAP_NAME) || 3;
@@ -409,23 +469,16 @@ function importRosterFromTSV(bookType, className, parsedData, mapping) {
     'gender': 4 
   };
   
-  let maxTargetCol = 0;
-  mapping.forEach(field => {
-    if (field !== 'ignore' && targetCols[field] !== undefined) {
-      if (targetCols[field] > maxTargetCol) maxTargetCol = targetCols[field];
-    }
-  });
-  
   const startRow = 6;
-  if (!isNew && sheet.getLastRow() >= startRow) {
-    sheet.getRange(startRow, 1, sheet.getLastRow() - startRow + 1, maxTargetCol + 1).clearContent();
-  }
+  
+  // 一旦サンプルデータをクリア（数式ごと上書きするため全体をクリアするより、必要な列だけ入れる）
+  sheet.getRange(startRow, 1, 40, rosterCols).clearContent();
   
   if (parsedData.length === 0) return true;
   
   let outputData = [];
   for (let r = 0; r < parsedData.length; r++) {
-    let rowOut = new Array(maxTargetCol + 1).fill("");
+    let rowOut = new Array(rosterCols).fill("");
     const rowIn = parsedData[r];
     
     for (let c = 0; c < mapping.length; c++) {
@@ -436,20 +489,16 @@ function importRosterFromTSV(bookType, className, parsedData, mapping) {
         }
       }
     }
+    
+    let rowIndex = startRow + r;
+    rowOut[5] = `=IF(COUNTA($H$5:$Z$5)=0, 0, G${rowIndex}/COUNTA($H$5:$Z$5))`;
+    rowOut[6] = `=COUNTIF(H${rowIndex}:Z${rowIndex},"提")+COUNTIF(H${rowIndex}:Z${rowIndex}, 1)`;
+    
     outputData.push(rowOut);
   }
   
-  sheet.getRange(startRow, 1, outputData.length, maxTargetCol + 1).setValues(outputData);
-  
-  const maxRow = startRow + outputData.length - 1;
-  if (maxRow >= 6) {
-    const startColForFormulas = maxTargetCol + 2; // targetCol is 0-indexed, so maxTargetCol+2 is 1-indexed formula start
-    if (startColForFormulas <= rosterCols) {
-      const formulaRange = sheet.getRange(startRow, startColForFormulas, 1, rosterCols - startColForFormulas + 1);
-      const destRange = sheet.getRange(startRow, startColForFormulas, outputData.length, rosterCols - startColForFormulas + 1);
-      formulaRange.copyTo(destRange, SpreadsheetApp.CopyPasteType.PASTE_NORMAL, false);
-    }
-  }
+  sheet.getRange(startRow, 1, outputData.length, rosterCols).setValues(outputData);
+  sheet.getRange(startRow, 6, outputData.length, 1).setNumberFormat("0.0%");
   
   return true;
 }

@@ -77,9 +77,11 @@ function reloadClassList() {
   google.script.run.withSuccessHandler(list => {
     const select = document.getElementById('class-select');
     select.innerHTML = '';
-    list.forEach(name => {
+    list.forEach(jsonStr => {
+      let item = JSON.parse(jsonStr);
       let opt = document.createElement('option');
-      opt.value = opt.text = name;
+      opt.value = jsonStr;
+      opt.text = item.displayName;
       select.add(opt);
     });
     loadClassData();
@@ -215,10 +217,13 @@ function parseTSV() {
 
 function executeTSVImport() {
   const bookType = document.getElementById('tsv-target-book').value;
-  const className = document.getElementById('tsv-class-name').value.trim();
+  let className = document.getElementById('tsv-class-name').value.trim();
   if (!className) {
-    alert("クラス名を入力してください。");
+    alert("シート名を入力してください。");
     return;
+  }
+  if (!className.endsWith('＠入力')) {
+    className += '＠入力';
   }
   
   const selects = document.querySelectorAll('.tsv-map-select');
@@ -699,6 +704,13 @@ function confirmData() {
   // 送信中のUIロック処理
   document.querySelectorAll('button').forEach(b => b.disabled = true);
   
+  const resultsWithRow = state.students.map((student, idx) => {
+    return {
+      sheetRow: student.sheetRow,
+      val: state.results[idx]
+    };
+  });
+  
   google.script.run.withSuccessHandler(url => {
     alert("保存が完了しました。");
     document.querySelectorAll('button').forEach(b => b.disabled = false);
@@ -707,11 +719,11 @@ function confirmData() {
     }
     // Clear state
     state.results = new Array(state.students.length).fill("");
-    state.currentIndex = 0;
+    state.currentIndex = findFirstUnansweredIndex();
     showSetup();
   }).withFailureHandler(err => {
     alert("エラーが発生しました: " + err.message);
     document.querySelectorAll('button').forEach(b => b.disabled = false);
-  }).submitAttendanceData(state.bookType, state.currentClass, state.taskIndex, state.taskName, state.results);
+  }).submitAttendanceData(state.bookType, state.currentClass, state.taskIndex, state.taskName, resultsWithRow);
 }
 </script>
