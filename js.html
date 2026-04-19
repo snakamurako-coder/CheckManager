@@ -4,10 +4,12 @@ let state = {
   currentClass: '',
   taskIndex: 0,
   taskName: '',
+  taskDate: '',
   mode: 0, // 1 or 2
   students: [],
   results: [],
-  currentIndex: 0
+  currentIndex: 0,
+  lastAction: null
 };
 
 // Mode 2 local vars
@@ -32,6 +34,11 @@ window.onload = () => {
   }).loadUserState();
 };
 
+function findFirstUnansweredIndex() {
+  const idx = state.results.findIndex(r => r === "" || r === null);
+  return idx === -1 ? 0 : idx;
+}
+
 function restoreStateUI() {
   document.getElementById('setup-view').style.display = 'none';
   
@@ -39,7 +46,12 @@ function restoreStateUI() {
   document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(`book-toggle-${state.bookType === 'quiz' ? 'quiz' : 'assign'}`).classList.add('active');
 
+  const headerText = state.taskDate ? `${state.taskDate} 登録 : ${state.taskName}` : state.taskName;
+  if (document.getElementById('seq-task-header')) document.getElementById('seq-task-header').innerText = headerText;
+  if (document.getElementById('ref-task-header')) document.getElementById('ref-task-header').innerText = headerText;
+
   if (state.mode === 1) {
+    state.currentIndex = findFirstUnansweredIndex();
     document.getElementById('sequential-view').style.display = 'flex';
     setupSeqView();
     updateSeqDisplay();
@@ -98,6 +110,8 @@ function loadClassData() {
       let opt = document.createElement('option');
       opt.value = t.colIndex; 
       opt.text = `${t.name} (${t.date})`; 
+      opt.dataset.name = t.name;
+      opt.dataset.date = t.date;
       taskSel.add(opt);
     });
     
@@ -318,13 +332,20 @@ function startMode(mode) {
     return;
   }
 
-  state.taskName = ""; // 新規追加はモーダルで行うためここは不要
+  const selectedOpt = taskSel.options[taskSel.selectedIndex];
+  state.taskName = selectedOpt.dataset.name || "";
+  state.taskDate = selectedOpt.dataset.date || "";
+  state.lastAction = null;
   
   state.mode = mode;
   document.getElementById('setup-view').style.display = 'none';
   
+  const headerText = state.taskDate ? `${state.taskDate} 登録 : ${state.taskName}` : state.taskName;
+  if (document.getElementById('seq-task-header')) document.getElementById('seq-task-header').innerText = headerText;
+  if (document.getElementById('ref-task-header')) document.getElementById('ref-task-header').innerText = headerText;
+  
   if (mode === 1) {
-    state.currentIndex = 0;
+    state.currentIndex = findFirstUnansweredIndex();
     document.getElementById('sequential-view').style.display = 'flex';
     setupSeqView();
     updateSeqDisplay();
@@ -366,8 +387,24 @@ function setupSeqView() {
 
 function updateSeqDisplay() {
   const s = state.students[state.currentIndex];
-  document.getElementById('seq-name').innerText = `${s.no}番：${s.name}`;
+  document.getElementById('seq-name-text').innerText = `${s.no}番：${s.name}`;
   document.getElementById('seq-current-info').innerText = `${state.currentIndex + 1} / ${state.students.length} 人目`;
+  
+  const currentVal = state.results[state.currentIndex];
+  const badge = document.getElementById('seq-status-badge');
+  if (currentVal !== "" && currentVal !== null) {
+    badge.innerText = `[入力済: ${currentVal}]`;
+    badge.style.color = '#188038';
+  } else {
+    badge.innerText = `[未入力]`;
+    badge.style.color = '#ea4335';
+  }
+
+  if (state.lastAction) {
+    document.getElementById('seq-last-action').innerText = `💡 直前の入力: ${state.lastAction.name} → ${state.lastAction.val}`;
+  } else {
+    document.getElementById('seq-last-action').innerText = ``;
+  }
   
   if (state.currentIndex === state.students.length - 1) {
     document.getElementById('submit-btn-seq').style.display = 'block';
@@ -377,7 +414,6 @@ function updateSeqDisplay() {
 
   // Quiz mode: show current score if already input
   if (state.bookType === 'quiz') {
-    const currentVal = state.results[state.currentIndex];
     if (currentVal !== "" && currentVal !== null) {
       document.getElementById('seq-quiz-score').innerText = currentVal;
       document.getElementById('seq-quiz-score').style.color = '#188038'; // green
@@ -397,8 +433,16 @@ function prevStudent() {
   }
 }
 
+function nextStudent() {
+  if (state.currentIndex < state.students.length - 1) {
+    state.currentIndex++;
+    updateSeqDisplay();
+  }
+}
+
 // Mode 1 Assign actions
 function recordSeqAssign(val) {
+  state.lastAction = { name: state.students[state.currentIndex].name, val: val };
   state.results[state.currentIndex] = val;
   autoSave();
   if (state.currentIndex < state.students.length - 1) {
@@ -421,6 +465,7 @@ function kpSeq(val) {
     display.innerText = tempNumStr || "_";
   } else if (val === 'Enter') {
     if (tempNumStr !== "") {
+      state.lastAction = { name: state.students[state.currentIndex].name, val: tempNumStr };
       state.results[state.currentIndex] = tempNumStr;
       autoSave();
       if (state.currentIndex < state.students.length - 1) {
@@ -440,6 +485,13 @@ function setupRefView() {
   tempNumStr = "";
   document.getElementById('ref-input').value = "";
   
+  document.getElementById('ref-status-badge').innerText = "";
+  if (state.lastAction) {
+    document.getElementById('ref-last-action').innerText = `💡 直前の入力: ${state.lastAction.name} → ${state.lastAction.val}`;
+  } else {
+    document.getElementById('ref-last-action').innerText = ``;
+  }
+
   if (state.bookType === 'assignment') {
     document.getElementById('ref-assign-keypad').style.display = 'grid';
     document.getElementById('ref-quiz-keypad').style.display = 'none';
@@ -464,33 +516,51 @@ function kpRef(val) {
     tempNumStr += val;
     inputEl.value = tempNumStr;
     const student = state.students.find(s => s.no == tempNumStr);
+    const badge = document.getElementById('ref-status-badge');
     if (student) {
       const idx = state.students.indexOf(student);
       const currentVal = state.results[idx];
       display.innerText = `${student.name}`;
-      if (currentVal) {
-        statusEl.innerText = `(入力済:${currentVal})`;
-        statusEl.style.color = '#d93025';
+      if (currentVal !== "" && currentVal !== null) {
+        badge.innerText = `[入力済: ${currentVal}]`;
+        badge.style.color = '#188038';
       } else {
-        statusEl.innerText = "";
+        badge.innerText = `[未入力]`;
+        badge.style.color = '#ea4335';
       }
     } else {
       display.innerText = "該当者なし";
-      statusEl.innerText = "";
+      badge.innerText = "";
     }
   } else if (val === 'Del') {
     tempNumStr = tempNumStr.slice(0, -1);
     inputEl.value = tempNumStr;
-    // re-trigger logic manually or leave it simple
+    const badge = document.getElementById('ref-status-badge');
     if(!tempNumStr) {
       display.innerText = "番号を入力";
-      statusEl.innerText = "";
+      badge.innerText = "";
+    } else {
+      const student = state.students.find(s => s.no == tempNumStr);
+      if (student) {
+        display.innerText = student.name;
+        const currentVal = state.results[state.students.indexOf(student)];
+        if (currentVal !== "" && currentVal !== null) {
+          badge.innerText = `[入力済: ${currentVal}]`;
+          badge.style.color = '#188038';
+        } else {
+          badge.innerText = `[未入力]`;
+          badge.style.color = '#ea4335';
+        }
+      } else {
+        display.innerText = "該当者なし";
+        badge.innerText = "";
+      }
     }
   } else if (val === 'Clear') {
     tempNumStr = "";
     inputEl.value = "";
     display.innerText = "番号を入力";
-    statusEl.innerText = "";
+    document.getElementById('ref-status-badge').innerText = "";
   }
 }
 
@@ -501,11 +571,13 @@ function recordRefAssign(val) {
   
   const idx = state.students.findIndex(s => s.no == tempNumStr);
   if (idx !== -1) {
+    state.lastAction = { name: state.students[idx].name, val: val };
     state.results[idx] = val;
     autoSave();
     display.innerText = `${state.students[idx].name} → [${val}] 保存`;
     display.style.color = '#188038';
-    statusEl.innerText = "";
+    document.getElementById('ref-status-badge').innerText = "";
+    document.getElementById('ref-last-action').innerText = `💡 直前の入力: ${state.lastAction.name} → ${state.lastAction.val}`;
     
     // Auto clear after short delay
     setTimeout(() => { 
@@ -528,23 +600,50 @@ function kpRefQuiz(val) {
       tempNumStr += val;
       inputEl.value = tempNumStr;
       
+      const badge = document.getElementById('ref-status-badge');
       const student = state.students.find(s => s.no == tempNumStr);
       if (student) {
         display.innerText = student.name;
         const currentVal = state.results[state.students.indexOf(student)];
-        if (currentVal) {
-          statusEl.innerText = `(入力済:${currentVal}) 【Enterで得点入力へ】`;
+        if (currentVal !== "" && currentVal !== null) {
+          badge.innerText = `[入力済: ${currentVal}]`;
+          badge.style.color = '#188038';
+          statusEl.innerText = "【Enterで得点入力へ】";
           statusEl.style.color = '#d93025';
         } else {
+          badge.innerText = `[未入力]`;
+          badge.style.color = '#ea4335';
           statusEl.innerText = "【出席番号 入力】 (Enterで次へ)";
           statusEl.style.color = '#1a73e8';
         }
       } else {
         display.innerText = "該当者なし";
+        badge.innerText = "";
       }
     } else if (val === 'Del') {
       tempNumStr = tempNumStr.slice(0, -1);
       inputEl.value = tempNumStr;
+      const badge = document.getElementById('ref-status-badge');
+      if(!tempNumStr) {
+        display.innerText = "番号を入力";
+        badge.innerText = "";
+      } else {
+        const student = state.students.find(s => s.no == tempNumStr);
+        if (student) {
+          display.innerText = student.name;
+          const currentVal = state.results[state.students.indexOf(student)];
+          if (currentVal !== "" && currentVal !== null) {
+            badge.innerText = `[入力済: ${currentVal}]`;
+            badge.style.color = '#188038';
+          } else {
+            badge.innerText = `[未入力]`;
+            badge.style.color = '#ea4335';
+          }
+        } else {
+          display.innerText = "該当者なし";
+          badge.innerText = "";
+        }
+      }
     } else if (val === 'Enter') {
       const idx = state.students.findIndex(s => s.no == tempNumStr);
       if (idx !== -1) {
@@ -553,6 +652,7 @@ function kpRefQuiz(val) {
         tempNumStr = "";
         inputEl.value = "";
         display.innerText = `${state.students[idx].name} の得点`;
+        document.getElementById('ref-status-badge').innerText = "";
         statusEl.innerText = "【得点 入力】";
         statusEl.style.color = '#e37400';
       }
@@ -567,11 +667,14 @@ function kpRefQuiz(val) {
       inputEl.value = tempNumStr;
     } else if (val === 'Enter') {
       if (tempNumStr !== "") {
+        state.lastAction = { name: state.students[refTargetIdx].name, val: tempNumStr + "点" };
         state.results[refTargetIdx] = tempNumStr;
         autoSave();
         display.innerText = `保存済: ${tempNumStr}点`;
         display.style.color = '#188038';
+        document.getElementById('ref-status-badge').innerText = "";
         statusEl.innerText = "";
+        document.getElementById('ref-last-action').innerText = `💡 直前の入力: ${state.lastAction.name} → ${state.lastAction.val}`;
         
         setTimeout(() => {
           refQuizState = "number";

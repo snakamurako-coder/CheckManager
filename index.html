@@ -135,10 +135,15 @@
 
       <!-- モード1：出席番号順ビュー -->
       <div id="sequential-view" class="view" style="display:none;">
-        <div class="status-bar">
+        <div id="seq-task-header" style="text-align: center; font-weight: bold; color: #1a73e8; margin-bottom: 5px; font-size: 16px;"></div>
+        <div class="status-bar" style="margin-bottom: 5px;">
           <span id="seq-current-info" style="font-weight: bold; font-size: 18px;"></span>
         </div>
-        <div class="name-display" id="seq-name" style="height: 80px;">氏名</div>
+        <div id="seq-last-action" style="text-align: center; color: #188038; font-size: 14px; min-height: 20px; margin-bottom: 10px; font-weight: bold;"></div>
+        <div class="name-display" style="height: 80px; flex-direction: column;">
+          <div id="seq-name-text">氏名</div>
+          <div id="seq-status-badge" style="font-size: 14px; margin-top: 5px;"></div>
+        </div>
         
         <!-- 提出物用のアクション -->
         <div id="seq-assign-actions" class="action-buttons" style="display:none;">
@@ -161,20 +166,30 @@
           </div>
         </div>
 
-        <div class="footer-nav" style="margin-top: 20px;">
-          <button class="nav-btn" onclick="prevStudent()">前へ戻る</button>
-          <button id="submit-btn-seq" style="display:none; flex-grow: 1;" class="btn-primary" onclick="confirmData()">全入力を確定</button>
-          <button class="nav-btn" onclick="saveAndExit()">中断</button>
+        <!-- 前後ナビゲーション -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; margin-bottom: 10px;">
+          <button class="tile-btn" onclick="prevStudent()" style="height: 60px; font-size: 18px; color: #555; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">◀ 前の生徒</button>
+          <button class="tile-btn" onclick="nextStudent()" style="height: 60px; font-size: 18px; color: #555; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">次の生徒 ▶</button>
+        </div>
+
+        <div class="footer-nav" style="margin-top: auto;">
+          <button id="submit-btn-seq" style="display:none; flex-grow: 1; margin-right: 10px;" class="btn-primary" onclick="confirmData()">全入力を確定</button>
+          <button class="nav-btn" onclick="saveAndExit()" style="flex-grow: 1; padding: 15px;">中断して戻る</button>
         </div>
       </div>
 
       <!-- モード2：番号参照ビュー -->
       <div id="reference-view" class="view" style="display:none;">
+        <div id="ref-task-header" style="text-align: center; font-weight: bold; color: #1a73e8; margin-bottom: 5px; font-size: 16px;"></div>
+        <div id="ref-last-action" style="text-align: center; color: #188038; font-size: 14px; min-height: 20px; margin-bottom: 10px; font-weight: bold;"></div>
         <button class="btn-primary" onclick="confirmData()" style="margin-bottom: 10px;">全入力を確定する</button>
         
         <div class="search-box" style="margin-bottom: 15px;">
           <div id="ref-status-display" style="text-align:center; font-weight:bold; color:#1a73e8; margin-bottom:5px;"></div>
-          <div id="ref-name-display" class="name-display" style="height: 60px; font-size: 20px; margin: 0 0 10px 0;">番号を入力</div>
+          <div class="name-display" style="height: 80px; flex-direction: column; margin: 0 0 10px 0;">
+             <div id="ref-name-display" style="font-size: 20px;">番号を入力</div>
+             <div id="ref-status-badge" style="font-size: 14px; margin-top: 5px;"></div>
+          </div>
           <input type="number" id="ref-input" readonly style="width:100%; box-sizing:border-box;">
         </div>
 
