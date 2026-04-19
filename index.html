@@ -38,6 +38,12 @@
           <label>対象の列（課題/テスト）</label>
           <select id="task-select"></select>
         </div>
+        <div class="input-group ref-option-row">
+          <label class="ref-opt-label">
+            <input type="checkbox" id="opt-ref-two-digit" checked onchange="onRefTwoDigitChange()">
+            出席番号は2桁で照合（1桁は0埋め）。チェック時：点数モードで得点入力へ進むときの確認（Enter）を省略
+          </label>
+        </div>
 
         <div class="mode-buttons">
           <button class="tile-btn" onclick="startMode(1)">
@@ -201,11 +207,12 @@
         <div id="ref-last-action" style="text-align: center; color: #188038; font-size: 14px; min-height: 20px; margin-bottom: 10px; font-weight: bold;"></div>
         <div class="search-box" style="margin-bottom: 15px;">
           <div id="ref-status-display" style="text-align:center; font-weight:bold; color:#1a73e8; margin-bottom:5px;"></div>
-          <input type="text" id="ref-input" readonly inputmode="numeric" autocomplete="off" style="width:100%; box-sizing:border-box; margin-bottom: 10px; font-size: 24px; text-align: center;" placeholder="番号">
-          <div class="name-display" style="height: 80px; flex-direction: column; margin: 0 0 10px 0;">
-             <div id="ref-name-display" style="font-size: 20px;">番号を入力</div>
-             <div id="ref-status-badge" style="font-size: 14px; margin-top: 5px;"></div>
+          <div class="ref-compact-row">
+            <input type="text" id="ref-input" readonly tabindex="-1" inputmode="numeric" autocomplete="off" class="ref-input-compact" placeholder="番号">
+            <span id="ref-name-display" class="ref-name-inline">—</span>
+            <span id="ref-score-live" class="ref-score-live" aria-live="polite"></span>
           </div>
+          <div id="ref-status-badge" class="ref-badge-line"></div>
 
         <!-- 提出物・小テスト(合否): 出席番号用ソフトテンキー（氏名の直下） -->
         <div id="ref-number-keypad" class="keypad-grid" style="display:none;">
