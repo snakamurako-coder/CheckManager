@@ -17,6 +17,28 @@ let tempNumStr = "";
 let refQuizState = "number"; // "number" or "score"
 let refTargetIdx = -1;
 
+/** スプレッドシートの番号列が数値/文字どちらでも照合できるようにする */
+function normalizeRefNo(v) {
+  if (v === null || v === undefined) return '';
+  return String(v).trim();
+}
+function findStudentIndexByRefDigits(str) {
+  if (!str || !state.students || !state.students.length) return -1;
+  const key = String(str).trim();
+  if (!key) return -1;
+  return state.students.findIndex(s => {
+    const n = normalizeRefNo(s.no);
+    if (n === key) return true;
+    const na = Number(n);
+    const nb = Number(key);
+    return !isNaN(na) && !isNaN(nb) && na === nb;
+  });
+}
+function findStudentByRefDigits(str) {
+  const i = findStudentIndexByRefDigits(str);
+  return i === -1 ? null : state.students[i];
+}
+
 window.onload = () => {
   // Check if there is a saved state
   google.script.run.withSuccessHandler(savedState => {
@@ -340,6 +362,10 @@ function startMode(mode) {
     alert("入力内容を選択してください。");
     return;
   }
+  if (!state.students || state.students.length === 0) {
+    alert("名簿が読み込まれていません。クラスを選び直すか、少し待ってから再度お試しください。");
+    return;
+  }
 
   const selectedOpt = taskSel.options[taskSel.selectedIndex];
   state.taskName = selectedOpt.dataset.name || "";
@@ -497,6 +523,8 @@ function kpSeq(val) {
 function setupRefView() {
   tempNumStr = "";
   document.getElementById('ref-input').value = "";
+  refQuizState = "number";
+  refTargetIdx = -1;
   
   document.getElementById('ref-status-badge').innerText = "";
   if (state.lastAction) {
@@ -505,25 +533,32 @@ function setupRefView() {
     document.getElementById('ref-last-action').innerText = ``;
   }
 
+  const numKp = document.getElementById('ref-number-keypad');
   if (state.bookType === 'assignment') {
+    numKp.style.display = 'grid';
     document.getElementById('ref-assign-keypad').style.display = 'grid';
     document.getElementById('ref-quiz-pf-keypad').style.display = 'none';
     document.getElementById('ref-quiz-score-keypad').style.display = 'none';
     document.getElementById('ref-name-display').innerText = "番号を入力";
-    document.getElementById('ref-status-display').innerText = "";
+    document.getElementById('ref-status-display').innerText = "【出席番号 入力】";
+    document.getElementById('ref-status-display').style.color = '#1a73e8';
   } else if (state.bookType === 'quiz_pf') {
+    numKp.style.display = 'grid';
     document.getElementById('ref-assign-keypad').style.display = 'none';
     document.getElementById('ref-quiz-pf-keypad').style.display = 'grid';
     document.getElementById('ref-quiz-score-keypad').style.display = 'none';
     document.getElementById('ref-name-display').innerText = "番号を入力";
     document.getElementById('ref-status-display').innerText = "【出席番号 入力】";
+    document.getElementById('ref-status-display').style.color = '#1a73e8';
   } else if (state.bookType === 'quiz_score') {
+    numKp.style.display = 'none';
     document.getElementById('ref-assign-keypad').style.display = 'none';
     document.getElementById('ref-quiz-pf-keypad').style.display = 'none';
     document.getElementById('ref-quiz-score-keypad').style.display = 'grid';
     refQuizState = "number";
     document.getElementById('ref-name-display').innerText = "番号を入力";
     document.getElementById('ref-status-display').innerText = "【出席番号 入力】";
+    document.getElementById('ref-status-display').style.color = '#1a73e8';
   }
 }
 
@@ -536,10 +571,10 @@ function kpRef(val) {
   if (typeof val === 'number') {
     tempNumStr += val;
     inputEl.value = tempNumStr;
-    const student = state.students.find(s => s.no == tempNumStr);
+    const student = findStudentByRefDigits(tempNumStr);
     const badge = document.getElementById('ref-status-badge');
     if (student) {
-      const idx = state.students.indexOf(student);
+      const idx = findStudentIndexByRefDigits(tempNumStr);
       const currentVal = state.results[idx];
       display.innerText = `${student.name}`;
       if (currentVal !== "" && currentVal !== null) {
@@ -553,6 +588,8 @@ function kpRef(val) {
       display.innerText = "該当者なし";
       badge.innerText = "";
     }
+    statusEl.innerText = "【出席番号 入力】";
+    statusEl.style.color = '#1a73e8';
   } else if (val === 'Del') {
     tempNumStr = tempNumStr.slice(0, -1);
     inputEl.value = tempNumStr;
@@ -561,10 +598,11 @@ function kpRef(val) {
       display.innerText = "番号を入力";
       badge.innerText = "";
     } else {
-      const student = state.students.find(s => s.no == tempNumStr);
+      const student = findStudentByRefDigits(tempNumStr);
       if (student) {
         display.innerText = student.name;
-        const currentVal = state.results[state.students.indexOf(student)];
+        const idx = findStudentIndexByRefDigits(tempNumStr);
+        const currentVal = state.results[idx];
         if (currentVal !== "" && currentVal !== null) {
           badge.innerText = `[入力済: ${currentVal}]`;
           badge.style.color = '#188038';
@@ -577,11 +615,15 @@ function kpRef(val) {
         badge.innerText = "";
       }
     }
+    statusEl.innerText = "【出席番号 入力】";
+    statusEl.style.color = '#1a73e8';
   } else if (val === 'Clear') {
     tempNumStr = "";
     inputEl.value = "";
     display.innerText = "番号を入力";
     document.getElementById('ref-status-badge').innerText = "";
+    statusEl.innerText = "【出席番号 入力】";
+    statusEl.style.color = '#1a73e8';
   }
 }
 
@@ -590,24 +632,40 @@ function recordRefAssign(val) {
   const inputEl = document.getElementById('ref-input');
   const statusEl = document.getElementById('ref-status-display');
   
-  const idx = state.students.findIndex(s => s.no == tempNumStr);
-  if (idx !== -1) {
-    state.lastAction = { name: state.students[idx].name, val: val };
-    state.results[idx] = val;
-    autoSave();
-    display.innerText = `${state.students[idx].name} → [${val}] 保存`;
-    display.style.color = val === '休' ? '#351c75' : '#188038';
-    document.getElementById('ref-status-badge').innerText = "";
-    document.getElementById('ref-last-action').innerText = `💡 直前の入力: ${state.lastAction.name} → ${state.lastAction.val}`;
-    
-    // Auto clear after short delay
-    setTimeout(() => { 
-      tempNumStr = ""; 
-      inputEl.value = ""; 
-      display.innerText = "番号を入力"; 
-      display.style.color = '#333';
-    }, 800);
+  let idx = -1;
+  if (state.bookType === 'quiz_score' && refQuizState === 'score' && refTargetIdx >= 0) {
+    idx = refTargetIdx;
+  } else {
+    idx = findStudentIndexByRefDigits(tempNumStr);
   }
+  if (idx === -1) {
+    alert("先に出席番号をテンキーで入力し、氏名が表示される状態でタイルを押してください。");
+    return;
+  }
+  state.lastAction = { name: state.students[idx].name, val: val };
+  state.results[idx] = val;
+  autoSave();
+  display.innerText = `${state.students[idx].name} → [${val}] 保存`;
+  display.style.color = val === '休' ? '#351c75' : '#188038';
+  document.getElementById('ref-status-badge').innerText = "";
+  document.getElementById('ref-last-action').innerText = `💡 直前の入力: ${state.lastAction.name} → ${state.lastAction.val}`;
+  if (state.bookType === 'quiz_score') {
+    refQuizState = 'number';
+    refTargetIdx = -1;
+    statusEl.innerText = "【出席番号 入力】";
+    statusEl.style.color = '#1a73e8';
+  }
+  
+  setTimeout(() => { 
+    tempNumStr = ""; 
+    inputEl.value = ""; 
+    display.innerText = "番号を入力"; 
+    display.style.color = '#333';
+    if (state.bookType !== 'quiz_score' || refQuizState === 'number') {
+      statusEl.innerText = "【出席番号 入力】";
+      statusEl.style.color = '#1a73e8';
+    }
+  }, 800);
 }
 
 // --- Mode 2 Quiz ---
@@ -622,10 +680,10 @@ function kpRefQuiz(val) {
       inputEl.value = tempNumStr;
       
       const badge = document.getElementById('ref-status-badge');
-      const student = state.students.find(s => s.no == tempNumStr);
+      const student = findStudentByRefDigits(tempNumStr);
       if (student) {
         display.innerText = student.name;
-        const currentVal = state.results[state.students.indexOf(student)];
+        const currentVal = state.results[findStudentIndexByRefDigits(tempNumStr)];
         if (currentVal !== "" && currentVal !== null) {
           badge.innerText = `[入力済: ${currentVal}]`;
           badge.style.color = '#188038';
@@ -649,10 +707,10 @@ function kpRefQuiz(val) {
         display.innerText = "番号を入力";
         badge.innerText = "";
       } else {
-        const student = state.students.find(s => s.no == tempNumStr);
+        const student = findStudentByRefDigits(tempNumStr);
         if (student) {
           display.innerText = student.name;
-          const currentVal = state.results[state.students.indexOf(student)];
+          const currentVal = state.results[findStudentIndexByRefDigits(tempNumStr)];
           if (currentVal !== "" && currentVal !== null) {
             badge.innerText = `[入力済: ${currentVal}]`;
             badge.style.color = '#188038';
@@ -666,7 +724,7 @@ function kpRefQuiz(val) {
         }
       }
     } else if (val === 'Enter') {
-      const idx = state.students.findIndex(s => s.no == tempNumStr);
+      const idx = findStudentIndexByRefDigits(tempNumStr);
       if (idx !== -1) {
         refTargetIdx = idx;
         refQuizState = "score";

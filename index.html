@@ -201,11 +201,27 @@
         <div id="ref-last-action" style="text-align: center; color: #188038; font-size: 14px; min-height: 20px; margin-bottom: 10px; font-weight: bold;"></div>
         <div class="search-box" style="margin-bottom: 15px;">
           <div id="ref-status-display" style="text-align:center; font-weight:bold; color:#1a73e8; margin-bottom:5px;"></div>
-          <input type="number" id="ref-input" readonly style="width:100%; box-sizing:border-box; margin-bottom: 10px; font-size: 24px; text-align: center;" placeholder="番号">
+          <input type="text" id="ref-input" readonly inputmode="numeric" autocomplete="off" style="width:100%; box-sizing:border-box; margin-bottom: 10px; font-size: 24px; text-align: center;" placeholder="番号">
           <div class="name-display" style="height: 80px; flex-direction: column; margin: 0 0 10px 0;">
              <div id="ref-name-display" style="font-size: 20px;">番号を入力</div>
              <div id="ref-status-badge" style="font-size: 14px; margin-top: 5px;"></div>
           </div>
+
+        <!-- 提出物・小テスト(合否): 出席番号用ソフトテンキー（氏名の直下） -->
+        <div id="ref-number-keypad" class="keypad-grid" style="display:none;">
+          <button type="button" class="keypad-btn" onclick="kpRef(7)">7</button>
+          <button type="button" class="keypad-btn" onclick="kpRef(8)">8</button>
+          <button type="button" class="keypad-btn" onclick="kpRef(9)">9</button>
+          <button type="button" class="keypad-btn" onclick="kpRef(4)">4</button>
+          <button type="button" class="keypad-btn" onclick="kpRef(5)">5</button>
+          <button type="button" class="keypad-btn" onclick="kpRef(6)">6</button>
+          <button type="button" class="keypad-btn" onclick="kpRef(1)">1</button>
+          <button type="button" class="keypad-btn" onclick="kpRef(2)">2</button>
+          <button type="button" class="keypad-btn" onclick="kpRef(3)">3</button>
+          <button type="button" class="keypad-btn" onclick="kpRef('Del')">Del</button>
+          <button type="button" class="keypad-btn" onclick="kpRef(0)">0</button>
+          <button type="button" class="keypad-btn" onclick="kpRef('Clear')">クリア</button>
+        </div>
         </div>
 
         <div id="ref-assign-keypad" class="action-grid" style="display:none;">
@@ -222,19 +238,19 @@
         </div>
         
         <div id="ref-quiz-score-keypad" class="keypad-grid" style="display:none;">
-          <button class="keypad-btn" onclick="kpRefQuiz(7)">7</button>
-          <button class="keypad-btn" onclick="kpRefQuiz(8)">8</button>
-          <button class="keypad-btn" onclick="kpRefQuiz(9)">9</button>
-          <button class="keypad-btn" onclick="kpRefQuiz(4)">4</button>
-          <button class="keypad-btn" onclick="kpRefQuiz(5)">5</button>
-          <button class="keypad-btn" onclick="kpRefQuiz(6)">6</button>
-          <button class="keypad-btn" onclick="kpRefQuiz(1)">1</button>
-          <button class="keypad-btn" onclick="kpRefQuiz(2)">2</button>
-          <button class="keypad-btn" onclick="kpRefQuiz(3)">3</button>
-          <button class="keypad-btn" onclick="kpRefQuiz('Del')">Del</button>
-          <button class="keypad-btn" onclick="kpRefQuiz(0)">0</button>
-          <button class="keypad-btn action-enter" onclick="kpRefQuiz('Enter')">確定</button>
-          <button class="keypad-btn status-kyu" style="grid-column:span 3;" onclick="recordRefAssign('休')">休み</button>
+          <button type="button" class="keypad-btn" onclick="kpRefQuiz(7)">7</button>
+          <button type="button" class="keypad-btn" onclick="kpRefQuiz(8)">8</button>
+          <button type="button" class="keypad-btn" onclick="kpRefQuiz(9)">9</button>
+          <button type="button" class="keypad-btn" onclick="kpRefQuiz(4)">4</button>
+          <button type="button" class="keypad-btn" onclick="kpRefQuiz(5)">5</button>
+          <button type="button" class="keypad-btn" onclick="kpRefQuiz(6)">6</button>
+          <button type="button" class="keypad-btn" onclick="kpRefQuiz(1)">1</button>
+          <button type="button" class="keypad-btn" onclick="kpRefQuiz(2)">2</button>
+          <button type="button" class="keypad-btn" onclick="kpRefQuiz(3)">3</button>
+          <button type="button" class="keypad-btn" onclick="kpRefQuiz('Del')">Del</button>
+          <button type="button" class="keypad-btn" onclick="kpRefQuiz(0)">0</button>
+          <button type="button" class="keypad-btn action-enter" onclick="kpRefQuiz('Enter')">確定</button>
+          <button type="button" class="keypad-btn status-kyu" style="grid-column:span 3;" onclick="recordRefAssign('休')">休み</button>
         </div>
 
         <div class="footer-nav">
