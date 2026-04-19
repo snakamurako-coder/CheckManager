@@ -24,10 +24,11 @@
           </div>
         <? } ?>
 
-        <div class="toggle-container">
-          <button id="book-toggle-assign" class="toggle-btn active" onclick="setBookType('assignment')">提出物</button>
-          <button id="book-toggle-quiz" class="toggle-btn" onclick="setBookType('quiz')">小テスト</button>
-        </div>
+        <div class="toggle-container" style="display:flex; justify-content:center; gap:10px; margin-bottom:20px;">
+        <button id="book-toggle-assign" class="toggle-btn active" onclick="setBookType('assignment')">提出物</button>
+        <button id="book-toggle-quiz_pf" class="toggle-btn" onclick="setBookType('quiz_pf')">小テスト(合否)</button>
+        <button id="book-toggle-quiz_score" class="toggle-btn" onclick="setBookType('quiz_score')">小テスト(点数)</button>
+      </div>
 
         <div class="input-group">
           <label>クラス選択</label>
@@ -53,12 +54,16 @@
         <h3 style="color: #1a73e8;">⚙️ システム設定</h3>
         <div style="overflow-y: auto; flex-grow: 1; padding-bottom: 20px;">
           <div class="input-group">
-            <label style="font-weight:bold;">提出物ブックID</label>
-            <input type="text" id="admin-assign-id" class="admin-input">
+            <label style="font-weight:bold;">提出物用ブックID</label>
+            <input type="text" id="admin-assign-id" class="admin-input" placeholder="スプレッドシートID">
           </div>
           <div class="input-group">
-            <label style="font-weight:bold;">小テストブックID</label>
-            <input type="text" id="admin-quiz-id" class="admin-input">
+            <label style="font-weight:bold;">小テスト(合否)用ブックID</label>
+            <input type="text" id="admin-quiz-pf-id" class="admin-input" placeholder="スプレッドシートID">
+          </div>
+          <div class="input-group">
+            <label style="font-weight:bold;">小テスト(点数)用ブックID</label>
+            <input type="text" id="admin-quiz-score-id" class="admin-input" placeholder="スプレッドシートID">
           </div>
           <p style="font-size: 12px; color: #666; margin-top: 10px;">※設定を保存すると、対象ブックの全シートA1セルに「提出物」または「小テスト」が自動登録されます。</p>
 
@@ -104,10 +109,11 @@
           <p style="font-size: 12px; color: #666; margin-bottom: 15px;">Excelなどからコピーした名簿データを貼り付けて一括登録します。数式列（提出率など）には上書きせず、設定済みの「氏名」「組」などの列にのみデータを書き込みます。</p>
 
           <div class="input-group">
-            <label style="font-weight:bold;">登録先ブック</label>
-            <select id="tsv-target-book" class="admin-input" style="padding: 10px;">
-              <option value="assignment">提出物用ブック</option>
-              <option value="quiz">小テスト用ブック</option>
+            <label style="font-weight:bold;">対象ブック</label>
+            <select id="tsv-target-book" class="admin-input">
+              <option value="assignment">提出物</option>
+              <option value="quiz_pf">小テスト(合否)</option>
+              <option value="quiz_score">小テスト(点数)</option>
             </select>
           </div>
           <div class="input-group">
@@ -145,26 +151,37 @@
           <div id="seq-status-badge" style="font-size: 14px; margin-top: 5px;"></div>
         </div>
         
-        <!-- 提出物用のアクション -->
-        <div id="seq-assign-actions" class="action-buttons" style="display:none;">
-          <button class="btn btn-green" onclick="recordSeqAssign('提')">提出</button>
-          <button class="btn btn-red" onclick="recordSeqAssign('未')">未提出</button>
-          <button class="btn btn-yellow" onclick="recordSeqAssign('再')">再提出</button>
-          <button class="btn btn-purple" onclick="recordSeqAssign('休')">休み</button>
-        </div>
-
-        <!-- 小テスト用のアクション -->
-        <div id="seq-quiz-actions" style="display:none; flex-grow: 1;">
-          <div style="text-align:center; font-size: 24px; font-weight:bold; margin-bottom:10px; color:#1a73e8;" id="seq-quiz-score">_</div>
-          <div class="keypad">
-            <button onclick="kpSeq(7)">7</button><button onclick="kpSeq(8)">8</button><button onclick="kpSeq(9)">9</button>
-            <button onclick="kpSeq(4)">4</button><button onclick="kpSeq(5)">5</button><button onclick="kpSeq(6)">6</button>
-            <button onclick="kpSeq(1)">1</button><button onclick="kpSeq(2)">2</button><button onclick="kpSeq(3)">3</button>
-            <button class="btn-gray" onclick="kpSeq('Del')" style="color:white; font-weight:bold;">Del</button>
-            <button onclick="kpSeq(0)">0</button>
-            <button class="btn-green" onclick="kpSeq('Enter')" style="color:white; font-weight:bold;">次へ</button>
+          <div class="action-grid" id="seq-assign-actions">
+            <button class="action-btn status-te" onclick="recordSeqAssign('提')">提</button>
+            <button class="action-btn status-mi" onclick="recordSeqAssign('未')">未</button>
+            <button class="action-btn status-sai" onclick="recordSeqAssign('再')">再</button>
+            <button class="action-btn status-kyu" onclick="recordSeqAssign('休')">休</button>
           </div>
-        </div>
+
+          <div class="action-grid" id="seq-quiz-pf-actions" style="display:none;">
+            <button class="action-btn status-te" onclick="recordSeqAssign('○')">合格</button>
+            <button class="action-btn status-mi" onclick="recordSeqAssign('×')">不合格</button>
+            <button class="action-btn status-kyu" onclick="recordSeqAssign('休')" style="grid-column: span 2;">休み</button>
+          </div>
+          
+          <div id="seq-quiz-score-actions" style="display:none; text-align:center;">
+            <div id="seq-quiz-score" style="font-size:32px; font-weight:bold; margin-bottom:10px; color:#1a73e8; min-height:40px;">_</div>
+            <div class="keypad-grid" style="max-width:300px; margin: 0 auto;">
+              <button class="keypad-btn" onclick="kpSeq(7)">7</button>
+              <button class="keypad-btn" onclick="kpSeq(8)">8</button>
+              <button class="keypad-btn" onclick="kpSeq(9)">9</button>
+              <button class="keypad-btn" onclick="kpSeq(4)">4</button>
+              <button class="keypad-btn" onclick="kpSeq(5)">5</button>
+              <button class="keypad-btn" onclick="kpSeq(6)">6</button>
+              <button class="keypad-btn" onclick="kpSeq(1)">1</button>
+              <button class="keypad-btn" onclick="kpSeq(2)">2</button>
+              <button class="keypad-btn" onclick="kpSeq(3)">3</button>
+              <button class="keypad-btn" onclick="kpSeq('Del')">Del</button>
+              <button class="keypad-btn" onclick="kpSeq(0)">0</button>
+              <button class="keypad-btn action-enter" onclick="kpSeq('Enter')">確定</button>
+              <button class="keypad-btn status-kyu" style="grid-column:span 3;" onclick="recordSeqAssign('休')">休み</button>
+            </div>
+          </div>
 
         <!-- 前後ナビゲーション -->
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; margin-bottom: 10px;">
@@ -191,21 +208,6 @@
              <div id="ref-status-badge" style="font-size: 14px; margin-top: 5px;"></div>
           </div>
           <input type="number" id="ref-input" readonly style="width:100%; box-sizing:border-box;">
-        </div>
-
-        <!-- 提出物用キーパッド -->
-        <div id="ref-assign-keypad" class="keypad" style="display:none;">
-          <button onclick="kpRef(7)">7</button><button onclick="kpRef(8)">8</button><button onclick="kpRef(9)">9</button>
-          <button onclick="kpRef(4)">4</button><button onclick="kpRef(5)">5</button><button onclick="kpRef(6)">6</button>
-          <button onclick="kpRef(1)">1</button><button onclick="kpRef(2)">2</button><button onclick="kpRef(3)">3</button>
-          <button class="btn-gray" onclick="kpRef('Del')" style="color:white; font-weight:bold;">Del</button>
-          <button onclick="kpRef(0)">0</button>
-          <button class="btn-gray" onclick="kpRef('Clear')" style="color:white; font-weight:bold;">C</button>
-          
-          <button class="btn-green" onclick="recordRefAssign('提')" style="color:white; font-weight:bold; grid-column: span 3; padding: 10px;">提</button>
-          <button class="btn-red" onclick="recordRefAssign('未')" style="color:white; font-weight:bold;">未</button>
-          <button class="btn-yellow" onclick="recordRefAssign('再')" style="color:white; font-weight:bold;">再</button>
-          <button class="btn-purple" onclick="recordRefAssign('休')" style="color:white; font-weight:bold;">休</button>
         </div>
 
         <!-- 小テスト用キーパッド (番号入力 -> 得点入力の遷移) -->

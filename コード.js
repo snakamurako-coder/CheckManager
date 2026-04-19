@@ -24,7 +24,8 @@ function setupAppEnvironment() {
   let settingsSheet = configSs.insertSheet("アプリ設定");
   settingsSheet.appendRow(["項目", "値", "説明"]);
   settingsSheet.appendRow(["ASSIGNMENT_SS_ID", "", "提出物用スプレッドシートID"]);
-  settingsSheet.appendRow(["QUIZ_SS_ID", "", "小テスト用スプレッドシートID"]);
+  settingsSheet.appendRow(["QUIZ_PF_SS_ID", "", "小テスト（合否）用スプレッドシートID"]);
+  settingsSheet.appendRow(["QUIZ_SCORE_SS_ID", "", "小テスト（点数）用スプレッドシートID"]);
   settingsSheet.appendRow(["PASS_SCORE", "80", "小テスト合格点"]);
   settingsSheet.appendRow(["HEADER_ROWS", "5", "見出し行数"]);
   settingsSheet.appendRow(["ROSTER_COLS", "7", "名簿部分の列数"]);
@@ -38,29 +39,42 @@ function setupAppEnvironment() {
   logSheet.appendRow(["タイムスタンプ", "ユーザー", "操作", "クラス", "内容"]);
 
   // 3. サンプル点検票ブック作成
-  let sampleSs = SpreadsheetApp.create("【サンプル】点検票ブック");
-  DriveApp.getFileById(sampleSs.getId()).moveTo(folder);
-  createSampleSheet(sampleSs.getSheets()[0], "1年＠入力");
+  let sampleAssignSs = SpreadsheetApp.create("【サンプル】課題点検票");
+  DriveApp.getFileById(sampleAssignSs.getId()).moveTo(folder);
+  createSampleSheet(sampleAssignSs.getSheets()[0], "1年＠入力", "assignment");
+
+  let sampleQuizPfSs = SpreadsheetApp.create("【サンプル】小テスト点検票(合否)");
+  DriveApp.getFileById(sampleQuizPfSs.getId()).moveTo(folder);
+  createSampleSheet(sampleQuizPfSs.getSheets()[0], "1年＠入力", "quiz_pf");
+
+  let sampleQuizScoreSs = SpreadsheetApp.create("【サンプル】小テスト点検票(点数)");
+  DriveApp.getFileById(sampleQuizScoreSs.getId()).moveTo(folder);
+  createSampleSheet(sampleQuizScoreSs.getSheets()[0], "1年＠入力", "quiz_score");
 
   // 4. スクリプトプロパティへの登録
   PropertiesService.getScriptProperties().setProperties({
-    "CONFIG_SS_ID": configSs.getId(),
-    "SAMPLE_SS_ID": sampleSs.getId()
+    "CONFIG_SS_ID": configSs.getId()
   });
   
   // 初期設定としてサンプルをターゲットに設定
-  updateConfigValue("ASSIGNMENT_SS_ID", sampleSs.getId());
-  updateConfigValue("QUIZ_SS_ID", sampleSs.getId());
+  updateConfigValue("ASSIGNMENT_SS_ID", sampleAssignSs.getId());
+  updateConfigValue("QUIZ_PF_SS_ID", sampleQuizPfSs.getId());
+  updateConfigValue("QUIZ_SCORE_SS_ID", sampleQuizScoreSs.getId());
 
   Logger.log("セットアップ完了！マイドライブの「課題点検アプリ_システムフォルダ」を確認してください。");
 }
 
-function createSampleSheet(sheet, desiredName = "1年＠入力") {
+function createSampleSheet(sheet, desiredName = "1年＠入力", sheetType = "assignment") {
   try {
     sheet.setName(desiredName);
   } catch(e) {
     Logger.log("Failed to set sheet name: " + desiredName);
   }
+  
+  let a1Val = "提出物";
+  if (sheetType === "quiz_pf") a1Val = "小テスト(合否)";
+  if (sheetType === "quiz_score") a1Val = "小テスト(点数)";
+
   const headers = [
     ["組","","","","","","通し番号→", 1, 2, 3, 4, 5],
     ["","","","","","", "提出率→", "=(COUNTIF(H6:H50,\"提\"))/40", "", "", "", ""],
@@ -69,6 +83,14 @@ function createSampleSheet(sheet, desiredName = "1年＠入力") {
     ["組","番号","ID","氏名","性別","提出率","提出数", "課題A", "課題B", "小テスト1", "課題C", "小テスト2"]
   ];
   sheet.getRange(1, 1, 5, headers[0].length).setValues(headers);
+  sheet.getRange("A1").setValue(a1Val);
+
+  if (sheetType === "quiz_pf" || sheetType === "quiz_score") {
+    let passScore = 80;
+    try { passScore = getAdminSettings().PASS_SCORE || 80; } catch(e) {}
+    sheet.getRange("B1").setValue(passScore);
+    sheet.getRange("C1").setValue("点合格");
+  }
   
   let sampleStudents = [];
   for(let i=1; i<=40; i++) {
@@ -89,13 +111,28 @@ function createSampleSheet(sheet, desiredName = "1年＠入力") {
   sheet.getRange(6, 6, 40, 1).setNumberFormat("0.0%");
   
   // 条件付き書式
-  let range = sheet.getRange("H6:Z50");
-  let rules = [
-    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("提").setBackground("#b7e1cd").setRanges([range]).build(),
-    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("未").setBackground("#f4c7c3").setRanges([range]).build(),
-    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("再").setBackground("#fce8b2").setRanges([range]).build(),
-    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("休").setBackground("#d9d2e9").setRanges([range]).build()
-  ];
+  let range = sheet.getRange("H6:Z205");
+  let rules = [];
+  if (sheetType === "assignment") {
+    rules = [
+      SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("提").setBackground("#b7e1cd").setFontColor("#0f5132").setRanges([range]).build(),
+      SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("未").setBackground("#f4c7c3").setFontColor("#842029").setRanges([range]).build(),
+      SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("再").setBackground("#fce8b2").setFontColor("#664d03").setRanges([range]).build(),
+      SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("休").setBackground("#d9d2e9").setFontColor("#351c75").setRanges([range]).build()
+    ];
+  } else if (sheetType === "quiz_pf") {
+    rules = [
+      SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("○").setBackground("#d1e7dd").setFontColor("#0f5132").setRanges([range]).build(),
+      SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("×").setBackground("#f8d7da").setFontColor("#842029").setRanges([range]).build(),
+      SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("休").setBackground("#d9d2e9").setFontColor("#351c75").setRanges([range]).build()
+    ];
+  } else if (sheetType === "quiz_score") {
+    rules = [
+      SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("休").setBackground("#d9d2e9").setFontColor("#351c75").setRanges([range]).build(),
+      SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied("=AND(ISNUMBER(H6), H6>=$B$1)").setBackground("#d1e7dd").setFontColor("#0f5132").setRanges([range]).build(),
+      SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied("=AND(ISNUMBER(H6), H6<$B$1)").setBackground("#f8d7da").setFontColor("#842029").setRanges([range]).build()
+    ];
+  }
   sheet.setConditionalFormatRules(rules);
   
   sheet.setFrozenRows(5);
@@ -153,9 +190,10 @@ function updateConfigValue(key, value) {
   }
 }
 
-function saveAdminSettingsFromUI(assignId, quizId, mapName, mapId, mapClass, mapNum, rosterCols, headerRows) {
+function saveAdminSettingsFromUI(assignId, quizPfId, quizScoreId, mapName, mapId, mapClass, mapNum, rosterCols, headerRows) {
   updateConfigValue("ASSIGNMENT_SS_ID", assignId);
-  updateConfigValue("QUIZ_SS_ID", quizId);
+  updateConfigValue("QUIZ_PF_SS_ID", quizPfId);
+  updateConfigValue("QUIZ_SCORE_SS_ID", quizScoreId);
   if (mapName !== "") updateConfigValue("COL_MAP_NAME", mapName);
   if (mapId !== "") updateConfigValue("COL_MAP_ID", mapId);
   if (mapClass !== "") updateConfigValue("COL_MAP_CLASS", mapClass);
@@ -164,7 +202,8 @@ function saveAdminSettingsFromUI(assignId, quizId, mapName, mapId, mapClass, map
   if (headerRows !== "") updateConfigValue("HEADER_ROWS", headerRows);
   
   if (assignId) registerBookTypeMarker("assignment", assignId);
-  if (quizId) registerBookTypeMarker("quiz", quizId);
+  if (quizPfId) registerBookTypeMarker("quiz_pf", quizPfId);
+  if (quizScoreId) registerBookTypeMarker("quiz_score", quizScoreId);
   
   return true;
 }
@@ -200,7 +239,9 @@ function getHeadersFromSheet(headerRow) {
 function registerBookTypeMarker(bookType, ssId) {
   try {
     const ss = SpreadsheetApp.openById(ssId);
-    const label = bookType === 'quiz' ? '小テスト' : '提出物';
+    let label = '提出物';
+    if (bookType === 'quiz_pf') label = '小テスト(合否)';
+    if (bookType === 'quiz_score') label = '小テスト(点数)';
     const sheets = ss.getSheets();
     for (let s of sheets) {
       if (s.getName().endsWith('＠入力')) {
@@ -227,8 +268,11 @@ function clearUserState() {
 
 function getAppSpreadsheet(bookType) {
   const settings = getAdminSettings();
-  let targetId = bookType === "quiz" ? settings["QUIZ_SS_ID"] : settings["ASSIGNMENT_SS_ID"];
-  return SpreadsheetApp.openById(targetId || PropertiesService.getScriptProperties().getProperty("SAMPLE_SS_ID"));
+  let targetId;
+  if (bookType === "quiz_pf") targetId = settings["QUIZ_PF_SS_ID"];
+  else if (bookType === "quiz_score") targetId = settings["QUIZ_SCORE_SS_ID"];
+  else targetId = settings["ASSIGNMENT_SS_ID"];
+  return SpreadsheetApp.openById(targetId);
 }
 
 function getClassList(bookType) {
@@ -429,14 +473,42 @@ function submitAttendanceData(bookType, classNameJSON, taskIndex, taskName, resu
     }
   }
 
+  // 既存の値を取得（変更ログ用）
+  let oldValues = {};
+  let minRow = Infinity;
+  let maxRow = -Infinity;
+  resultsWithRow.forEach(item => {
+    if (item.sheetRow < minRow) minRow = item.sheetRow;
+    if (item.sheetRow > maxRow) maxRow = item.sheetRow;
+  });
+
+  if (minRow !== Infinity && maxRow !== -Infinity && col <= sheet.getLastColumn()) {
+    const numRows = maxRow - minRow + 1;
+    const currentData = sheet.getRange(minRow, col, numRows, 1).getValues();
+    for (let i = 0; i < currentData.length; i++) {
+      oldValues[minRow + i] = currentData[i][0];
+    }
+  }
+
+  let changeLogs = [];
+
   // 生徒ごとに個別にセット
   resultsWithRow.forEach(item => {
     if (item.val !== null && item.val !== undefined && item.val !== "") {
+      const oldVal = oldValues[item.sheetRow];
+      const oldValStr = (oldVal === undefined || oldVal === null || oldVal === "") ? "空欄" : oldVal;
+      const newValStr = item.val;
+      
+      if (String(oldValStr) !== String(newValStr)) {
+        changeLogs.push(`${item.name || '不明'}(${oldValStr}→${newValStr})`);
+      }
+      
       sheet.getRange(item.sheetRow, col).setValue(item.val);
     }
   });
   
-  logToConfig(target.sheetName + (target.group ? ` (${target.group})` : ""), bookType === 'quiz' ? "小テスト入力" : "課題入力", `課題列: ${parseInt(taskIndex)+1}, 課題名: ${taskName || '既存'}`);
+  const logDetail = `課題列: ${parseInt(taskIndex)+1}, 課題名: ${taskName || '既存'}, 変更: ${changeLogs.length > 0 ? changeLogs.join(", ") : "なし"}`;
+  logToConfig(target.sheetName + (target.group ? ` (${target.group})` : ""), bookType === 'quiz' ? "小テスト入力" : "課題入力", logDetail);
   
   clearUserState();
   
@@ -454,7 +526,7 @@ function importRosterFromTSV(bookType, targetSheetName, parsedData, mapping) {
     sheet.clear();
   }
   
-  createSampleSheet(sheet, targetSheetName);
+  createSampleSheet(sheet, targetSheetName, bookType);
   
   const settings = getAdminSettings();
   const mapName = parseInt(settings.COL_MAP_NAME) || 3;

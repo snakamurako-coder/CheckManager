@@ -44,7 +44,8 @@ function restoreStateUI() {
   
   // Restore Book Type toggle visually
   document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById(`book-toggle-${state.bookType === 'quiz' ? 'quiz' : 'assign'}`).classList.add('active');
+  let toggleId = state.bookType === 'quiz_pf' ? 'quiz_pf' : (state.bookType === 'quiz_score' ? 'quiz_score' : 'assign');
+  document.getElementById(`book-toggle-${toggleId}`).classList.add('active');
 
   const headerText = state.taskDate ? `${state.taskDate} 登録 : ${state.taskName}` : state.taskName;
   if (document.getElementById('seq-task-header')) document.getElementById('seq-task-header').innerText = headerText;
@@ -66,7 +67,8 @@ function restoreStateUI() {
 function setBookType(type) {
   state.bookType = type;
   document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById(`book-toggle-${type === 'quiz' ? 'quiz' : 'assign'}`).classList.add('active');
+  let toggleId = type === 'quiz_pf' ? 'quiz_pf' : (type === 'quiz_score' ? 'quiz_score' : 'assign');
+  document.getElementById(`book-toggle-${toggleId}`).classList.add('active');
   reloadClassList();
 }
 
@@ -105,7 +107,7 @@ function loadClassData() {
     
     let newOpt = document.createElement('option');
     newOpt.value = 'new';
-    newOpt.text = state.bookType === 'quiz' ? 'ー新規小テスト情報を登録ー' : 'ー新規提出物情報を登録ー';
+    newOpt.text = state.bookType.startsWith('quiz') ? 'ー新規小テスト情報を登録ー' : 'ー新規提出物情報を登録ー';
     taskSel.add(newOpt);
     
     data.tasks.forEach(t => {
@@ -125,7 +127,7 @@ function checkNewTask() {
   const taskSel = document.getElementById('task-select');
   if (taskSel.value === 'new') {
     if (confirm("新規追加しますか？")) {
-      document.getElementById('new-task-title').innerText = state.bookType === 'quiz' ? "新規小テスト作成" : "新規提出物作成";
+      document.getElementById('new-task-title').innerText = state.bookType.startsWith('quiz') ? "新規小テスト作成" : "新規提出物作成";
       document.getElementById('new-task-date').value = "";
       document.getElementById('new-task-name').value = "";
       document.getElementById('new-task-modal').style.display = 'flex';
@@ -253,7 +255,8 @@ function openAdminSettings() {
   
   google.script.run.withSuccessHandler(settings => {
     document.getElementById('admin-assign-id').value = settings.ASSIGNMENT_SS_ID || '';
-    document.getElementById('admin-quiz-id').value = settings.QUIZ_SS_ID || '';
+    document.getElementById('admin-quiz-pf-id').value = settings.QUIZ_PF_SS_ID || '';
+    document.getElementById('admin-quiz-score-id').value = settings.QUIZ_SCORE_SS_ID || '';
     
     document.getElementById('admin-header-row').value = settings.HEADER_ROWS || '5';
     document.getElementById('admin-roster-cols').value = settings.ROSTER_COLS || '7';
@@ -305,7 +308,8 @@ function fetchHeaders() {
 
 function saveSettings() {
   const assignId = document.getElementById('admin-assign-id').value.trim();
-  const quizId = document.getElementById('admin-quiz-id').value.trim();
+  const quizPfId = document.getElementById('admin-quiz-pf-id').value.trim();
+  const quizScoreId = document.getElementById('admin-quiz-score-id').value.trim();
   
   const mapName = document.getElementById('map-name').value;
   const mapId = document.getElementById('map-id').value;
@@ -324,7 +328,7 @@ function saveSettings() {
   }).withFailureHandler(err => {
     alert("エラー: " + err.message);
     document.querySelectorAll('button').forEach(b => b.disabled = false);
-  }).saveAdminSettingsFromUI(assignId, quizId, mapName, mapId, mapClass, mapNum, rosterCols, headerRows);
+  }).saveAdminSettingsFromUI(assignId, quizPfId, quizScoreId, mapName, mapId, mapClass, mapNum, rosterCols, headerRows);
 }
 
 // --- 入力モードの制御 ---
@@ -379,12 +383,16 @@ function showSetup() {
 // Mode 1: 順次入力 (Sequential)
 // ==========================================
 function setupSeqView() {
+  document.getElementById('seq-assign-actions').style.display = 'none';
+  document.getElementById('seq-quiz-pf-actions').style.display = 'none';
+  document.getElementById('seq-quiz-score-actions').style.display = 'none';
+  
   if (state.bookType === 'assignment') {
     document.getElementById('seq-assign-actions').style.display = 'grid';
-    document.getElementById('seq-quiz-actions').style.display = 'none';
-  } else {
-    document.getElementById('seq-assign-actions').style.display = 'none';
-    document.getElementById('seq-quiz-actions').style.display = 'block';
+  } else if (state.bookType === 'quiz_pf') {
+    document.getElementById('seq-quiz-pf-actions').style.display = 'grid';
+  } else if (state.bookType === 'quiz_score') {
+    document.getElementById('seq-quiz-score-actions').style.display = 'block';
     tempNumStr = "";
     document.getElementById('seq-quiz-score').innerText = "_";
   }
@@ -418,10 +426,10 @@ function updateSeqDisplay() {
   }
 
   // Quiz mode: show current score if already input
-  if (state.bookType === 'quiz') {
+  if (state.bookType === 'quiz_score') {
     if (currentVal !== "" && currentVal !== null) {
       document.getElementById('seq-quiz-score').innerText = currentVal;
-      document.getElementById('seq-quiz-score').style.color = '#188038'; // green
+      document.getElementById('seq-quiz-score').style.color = currentVal === '休' ? '#351c75' : '#188038'; // purple or green
       tempNumStr = String(currentVal);
     } else {
       document.getElementById('seq-quiz-score').innerText = "_";
@@ -499,12 +507,20 @@ function setupRefView() {
 
   if (state.bookType === 'assignment') {
     document.getElementById('ref-assign-keypad').style.display = 'grid';
-    document.getElementById('ref-quiz-keypad').style.display = 'none';
+    document.getElementById('ref-quiz-pf-keypad').style.display = 'none';
+    document.getElementById('ref-quiz-score-keypad').style.display = 'none';
     document.getElementById('ref-name-display').innerText = "番号を入力";
     document.getElementById('ref-status-display').innerText = "";
-  } else {
+  } else if (state.bookType === 'quiz_pf') {
     document.getElementById('ref-assign-keypad').style.display = 'none';
-    document.getElementById('ref-quiz-keypad').style.display = 'grid';
+    document.getElementById('ref-quiz-pf-keypad').style.display = 'grid';
+    document.getElementById('ref-quiz-score-keypad').style.display = 'none';
+    document.getElementById('ref-name-display').innerText = "番号を入力";
+    document.getElementById('ref-status-display').innerText = "【出席番号 入力】";
+  } else if (state.bookType === 'quiz_score') {
+    document.getElementById('ref-assign-keypad').style.display = 'none';
+    document.getElementById('ref-quiz-pf-keypad').style.display = 'none';
+    document.getElementById('ref-quiz-score-keypad').style.display = 'grid';
     refQuizState = "number";
     document.getElementById('ref-name-display').innerText = "番号を入力";
     document.getElementById('ref-status-display').innerText = "【出席番号 入力】";
@@ -580,7 +596,7 @@ function recordRefAssign(val) {
     state.results[idx] = val;
     autoSave();
     display.innerText = `${state.students[idx].name} → [${val}] 保存`;
-    display.style.color = '#188038';
+    display.style.color = val === '休' ? '#351c75' : '#188038';
     document.getElementById('ref-status-badge').innerText = "";
     document.getElementById('ref-last-action').innerText = `💡 直前の入力: ${state.lastAction.name} → ${state.lastAction.val}`;
     
@@ -676,7 +692,7 @@ function kpRefQuiz(val) {
         state.results[refTargetIdx] = tempNumStr;
         autoSave();
         display.innerText = `保存済: ${tempNumStr}点`;
-        display.style.color = '#188038';
+        display.style.color = tempNumStr === '休' ? '#351c75' : '#188038';
         document.getElementById('ref-status-badge').innerText = "";
         statusEl.innerText = "";
         document.getElementById('ref-last-action').innerText = `💡 直前の入力: ${state.lastAction.name} → ${state.lastAction.val}`;
@@ -706,6 +722,7 @@ function confirmData() {
   
   const resultsWithRow = state.students.map((student, idx) => {
     return {
+      name: student.name,
       sheetRow: student.sheetRow,
       val: state.results[idx]
     };
