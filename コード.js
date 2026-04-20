@@ -272,9 +272,144 @@ function clearUserState() {
   PropertiesService.getUserProperties().deleteProperty("APP_STATE");
 }
 
+/** 「Copy of 」「 のコピー」などを除いた論理シート名（重複シートの統合用） */
+function stripCopyOfPrefix_(name) {
+  let n = String(name).trim();
+  while (/^Copy of /i.test(n)) n = n.replace(/^Copy of /i, "");
+  while (/ のコピー$/.test(n)) n = n.replace(/ のコピー$/, "");
+  return n;
+}
+
+function dedupeRefOrderTemplateSheets_(ss) {
+  if (!ss) return;
+  const all = ss.getSheets();
+  const candidates = [];
+  for (let i = 0; i < all.length; i++) {
+    const sh = all[i];
+    const stripped = stripCopyOfPrefix_(sh.getName());
+    if (stripped === REF_ORDER_TEMPLATE_SHEET_NAME) candidates.push(sh);
+  }
+  if (candidates.length === 0) return;
+  const exact = ss.getSheetByName(REF_ORDER_TEMPLATE_SHEET_NAME);
+  if (exact) {
+    for (let j = 0; j < candidates.length; j++) {
+      if (candidates[j].getSheetId() !== exact.getSheetId()) {
+        try {
+          ss.deleteSheet(candidates[j]);
+        } catch (e) {
+          Logger.log("dedupeRefOrderTemplateSheets_ delete: " + e);
+        }
+      }
+    }
+    return;
+  }
+  const keeper = candidates[0];
+  for (let k = 1; k < candidates.length; k++) {
+    try {
+      ss.deleteSheet(candidates[k]);
+    } catch (e) {
+      Logger.log("dedupeRefOrderTemplateSheets_ delete dup: " + e);
+    }
+  }
+  try {
+    keeper.setName(REF_ORDER_TEMPLATE_SHEET_NAME);
+  } catch (e) {
+    Logger.log("dedupeRefOrderTemplateSheets_ rename: " + e);
+  }
+}
+
+function orderSheetsMatchingClassPrefix_(ss, classPrefix) {
+  const out = [];
+  const sheets = ss.getSheets();
+  for (let i = 0; i < sheets.length; i++) {
+    const sh = sheets[i];
+    const norm = stripCopyOfPrefix_(sh.getName());
+    if (!norm.endsWith("＠番号参照入力順")) continue;
+    const p = norm.replace(/＠番号参照入力順$/, "");
+    if (p === classPrefix) out.push(sh);
+  }
+  return out;
+}
+
+function scoreOrderSheetForMerge_(sheet) {
+  try {
+    const settings = getAdminSettings();
+    const rosterCols = parseInt(settings.ROSTER_COLS) || 7;
+    const data = sheet.getDataRange().getValues();
+    let score = 0;
+    for (let r = 0; r < data.length; r++) {
+      for (let c = rosterCols; c < data[r].length; c++) {
+        const v = data[r][c];
+        if (v !== "" && v !== null && v !== undefined) score++;
+      }
+    }
+    return score;
+  } catch (e) {
+    return 0;
+  }
+}
+
+/**
+ * 同一クラス（＠より前が同じ）の「＠番号参照入力順」シートを1枚にまとめる。
+ * @return {GoogleAppsScript.Spreadsheet.Sheet|null} 残すシート。無ければ null
+ */
+function dedupeClassOrderSheetsForPrefix_(ss, canonicalOrderName) {
+  if (!ss || !canonicalOrderName || !canonicalOrderName.endsWith("＠番号参照入力順")) return null;
+  const classPrefix = canonicalOrderName.replace(/＠番号参照入力順$/, "");
+  const candidates = orderSheetsMatchingClassPrefix_(ss, classPrefix);
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) {
+    const only = candidates[0];
+    if (only.getName() !== canonicalOrderName && !ss.getSheetByName(canonicalOrderName)) {
+      try {
+        only.setName(canonicalOrderName);
+      } catch (e) {
+        Logger.log("dedupeClassOrderSheetsForPrefix_ rename single: " + e);
+      }
+    }
+    return only;
+  }
+  let keeper = null;
+  for (let i = 0; i < candidates.length; i++) {
+    if (stripCopyOfPrefix_(candidates[i].getName()) === canonicalOrderName) {
+      keeper = candidates[i];
+      break;
+    }
+  }
+  if (!keeper) {
+    keeper = candidates[0];
+    let best = scoreOrderSheetForMerge_(keeper);
+    for (let j = 1; j < candidates.length; j++) {
+      const sc = scoreOrderSheetForMerge_(candidates[j]);
+      if (sc > best) {
+        best = sc;
+        keeper = candidates[j];
+      }
+    }
+  }
+  for (let k = 0; k < candidates.length; k++) {
+    if (candidates[k].getSheetId() === keeper.getSheetId()) continue;
+    try {
+      ss.deleteSheet(candidates[k]);
+    } catch (e) {
+      Logger.log("dedupeClassOrderSheetsForPrefix_ delete: " + e);
+    }
+  }
+  if (keeper.getName() !== canonicalOrderName) {
+    try {
+      if (!ss.getSheetByName(canonicalOrderName)) keeper.setName(canonicalOrderName);
+    } catch (e) {
+      Logger.log("dedupeClassOrderSheetsForPrefix_ rename keeper: " + e);
+    }
+  }
+  return keeper;
+}
+
 function ensureRefOrderTemplateInWorkbook_(ss) {
   try {
-    if (!ss || ss.getSheetByName(REF_ORDER_TEMPLATE_SHEET_NAME)) return;
+    if (!ss) return;
+    dedupeRefOrderTemplateSheets_(ss);
+    if (ss.getSheetByName(REF_ORDER_TEMPLATE_SHEET_NAME)) return;
     const inputs = ss.getSheets().filter(s => /＠入力$/.test(s.getName()));
     if (!inputs.length) return;
     inputs[0].copyTo(ss).setName(REF_ORDER_TEMPLATE_SHEET_NAME);
@@ -357,7 +492,7 @@ function ensureRefOrderSheet(bookType, classNameJSON) {
   ensureRefOrderTemplateInWorkbook_(ss);
 
   const orderName = inputSheetNameToOrderSheetName_(mainName);
-  let orderSheet = ss.getSheetByName(orderName);
+  let orderSheet = dedupeClassOrderSheetsForPrefix_(ss, orderName);
   const isNewOrderSheet = !orderSheet;
   if (!orderSheet) {
     const template = ss.getSheetByName(REF_ORDER_TEMPLATE_SHEET_NAME);
