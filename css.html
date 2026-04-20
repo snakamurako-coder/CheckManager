@@ -309,6 +309,62 @@
     font-weight: bold;
     box-shadow: 0 4px 12px rgba(0,0,0,0.12);
     text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  .saving-overlay-content .saving-dots span {
+    background: #188038;
+  }
+
+  .data-loading-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    background: rgba(240, 242, 245, 0.72);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: all;
+  }
+  .data-loading-inner {
+    background: #fff;
+    border: 1px solid #d0d7de;
+    border-radius: 12px;
+    padding: 20px 28px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    min-width: 200px;
+  }
+  .data-loading-text {
+    font-size: 15px;
+    font-weight: bold;
+    color: #1a73e8;
+    text-align: center;
+  }
+  .data-loading-dots {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+  }
+  .data-loading-dots span {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #1a73e8;
+    opacity: 0.35;
+    animation: dataLoadDot 0.9s ease-in-out infinite;
+  }
+  .data-loading-dots span:nth-child(2) { animation-delay: 0.15s; }
+  .data-loading-dots span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes dataLoadDot {
+    0%, 80%, 100% { opacity: 0.35; transform: scale(0.92); }
+    40% { opacity: 1; transform: scale(1); }
   }
 
   @media (max-width: 420px) {

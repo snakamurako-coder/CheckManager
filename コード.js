@@ -261,13 +261,11 @@ function registerBookTypeMarker(bookType, ssId) {
   }
 }
 
-function saveUserState(stateObj) {
-  PropertiesService.getUserProperties().setProperty("APP_STATE", JSON.stringify(stateObj));
-}
+/** @deprecated 入力途中状態はブラウザ localStorage に保存（ユーザー単位ではなく端末・ブラウザ単位） */
+function saveUserState(stateObj) {}
 
 function loadUserState() {
-  const stateJson = PropertiesService.getUserProperties().getProperty("APP_STATE");
-  return stateJson ? JSON.parse(stateJson) : null;
+  return null;
 }
 
 function clearUserState() {
@@ -306,7 +304,8 @@ function columnToLetter_(column) {
   return temp;
 }
 
-function syncRefOrderSheetFromMain_(mainSheet, orderSheet) {
+function syncRefOrderSheetFromMain_(mainSheet, orderSheet, syncOptions) {
+  syncOptions = syncOptions || {};
   const settings = getAdminSettings();
   const headerRows = parseInt(settings.HEADER_ROWS) || 5;
   const rosterCols = parseInt(settings.ROSTER_COLS) || 7;
@@ -328,7 +327,7 @@ function syncRefOrderSheetFromMain_(mainSheet, orderSheet) {
       orderSheet.getRange(r, c).setFormula("=" + mainName + "!" + a1);
     }
   }
-  if (lastCol > rosterCols && lastRow > headerRows) {
+  if (syncOptions.clearTaskBody && lastCol > rosterCols && lastRow > headerRows) {
     orderSheet.getRange(headerRows + 1, rosterCols + 1, lastRow, lastCol).clearContent();
   }
   applyOrderSheetNameStyle_(orderSheet, headerRows, rosterCols, colName, lastRow);
@@ -359,6 +358,7 @@ function ensureRefOrderSheet(bookType, classNameJSON) {
 
   const orderName = inputSheetNameToOrderSheetName_(mainName);
   let orderSheet = ss.getSheetByName(orderName);
+  const isNewOrderSheet = !orderSheet;
   if (!orderSheet) {
     const template = ss.getSheetByName(REF_ORDER_TEMPLATE_SHEET_NAME);
     if (template) {
@@ -369,7 +369,7 @@ function ensureRefOrderSheet(bookType, classNameJSON) {
       orderSheet.setName(orderName);
     }
   }
-  syncRefOrderSheetFromMain_(mainSheet, orderSheet);
+  syncRefOrderSheetFromMain_(mainSheet, orderSheet, { clearTaskBody: isNewOrderSheet });
   return { ok: true, orderSheetName: orderName };
 }
 
@@ -544,6 +544,53 @@ function getClassData(bookType, classNameJSON) {
   return { students: students, tasks: taskList };
 }
 
+/**
+ * 選択中の課題列について、名簿の行順に一致するセル値を返す（2回目以降の入力で既存入力を維持するため）
+ */
+function getTaskColumnValues(bookType, classNameJSON, taskIndex) {
+  const data = getClassData(bookType, classNameJSON);
+  if (!data || !data.students.length) return [];
+
+  const ss = getAppSpreadsheet(bookType);
+  let target;
+  try {
+    target = JSON.parse(classNameJSON);
+  } catch (e) {
+    target = { sheetName: classNameJSON, group: "" };
+  }
+  const sheet = ss.getSheetByName(target.sheetName);
+  if (!sheet) return data.students.map(() => "");
+
+  const settings = getAdminSettings();
+  const rosterCols = parseInt(settings.ROSTER_COLS) || 7;
+  const col = rosterCols + 1 + parseInt(taskIndex, 10);
+  if (isNaN(col) || col < rosterCols + 1) return data.students.map(() => "");
+
+  if (col > sheet.getLastColumn()) {
+    return data.students.map(() => "");
+  }
+
+  const rows = data.students.map(s => s.sheetRow);
+  const minR = Math.min.apply(null, rows);
+  const maxR = Math.max.apply(null, rows);
+  const height = maxR - minR + 1;
+  const block = sheet.getRange(minR, col, height, 1).getValues();
+  const byRow = {};
+  for (let i = 0; i < height; i++) {
+    byRow[minR + i] = block[i][0];
+  }
+
+  return data.students.map(s => normalizeTaskCellForClient_(byRow[s.sheetRow]));
+}
+
+function normalizeTaskCellForClient_(v) {
+  if (v === null || v === undefined || v === "") return "";
+  if (Object.prototype.toString.call(v) === "[object Date]") {
+    return Utilities.formatDate(v, Session.getScriptTimeZone(), "M/d");
+  }
+  return v;
+}
+
 function createNewTask(bookType, classNameJSON, dateStr, name) {
   const ss = getAppSpreadsheet(bookType);
   let target;
@@ -658,14 +705,18 @@ function submitAttendanceData(bookType, classNameJSON, taskIndex, taskName, resu
   const logDetail = `課題列: ${parseInt(taskIndex)+1}, 課題名: ${taskName || '既存'}, 変更: ${changeLogs.length > 0 ? changeLogs.join(", ") : "なし"}${partialValues ? " (部分確定)" : ""}`;
   logToConfig(target.sheetName + (target.group ? ` (${target.group})` : ""), bookType === 'quiz' ? "小テスト入力" : "課題入力", logDetail);
   
-  if (!skipClearUserState) {
-    clearUserState();
-  }
-  
   return ss.getUrl();
 }
 
+function assertAdmin_() {
+  const email = Session.getActiveUser().getEmail();
+  if (getUserRole(email) !== "admin") {
+    throw new Error("この操作は管理者のみ実行できます。");
+  }
+}
+
 function createSecondaryCheckSheet(bookType, classNameJSON, taskIndex, taskName, sortDirection) {
+  assertAdmin_();
   const ss = getAppSpreadsheet(bookType);
   let target;
   try { target = JSON.parse(classNameJSON); } catch(e) { target = { sheetName: classNameJSON, group: "" }; }

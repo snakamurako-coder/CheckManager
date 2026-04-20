@@ -32,7 +32,7 @@
 
         <div class="input-group">
           <label>クラス選択</label>
-          <select id="class-select" onchange="loadClassData()"></select>
+          <select id="class-select" onchange="onClassSelectChange()"></select>
         </div>
         <div class="input-group">
           <label>対象の列（課題/テスト）</label>
@@ -276,9 +276,9 @@
         </div>
 
         <div class="footer-nav">
-          <button class="nav-btn" onclick="createSecondarySheet('asc')" style="width: 100%;">教員の二次点検票（処理順 昇順）</button>
-          <button class="nav-btn" onclick="createSecondarySheet('desc')" style="width: 100%;">教員の二次点検票（処理順 降順）</button>
           <? if (isAdmin) { ?>
+            <button class="nav-btn" onclick="createSecondarySheet('asc')" style="width: 100%;">教員の二次点検票（処理順 昇順）</button>
+            <button class="nav-btn" onclick="createSecondarySheet('desc')" style="width: 100%;">教員の二次点検票（処理順 降順）</button>
             <button class="btn-primary btn-approve" onclick="approveAndNext()" style="width: 100%;">承認</button>
           <? } ?>
           <button class="btn-primary" onclick="confirmData()" style="width: 100%;">全入力を確定する</button>
@@ -304,7 +304,17 @@
       </div>
 
       <div id="saving-overlay" class="saving-overlay" style="display:none;">
-        <div class="saving-overlay-content">保存中です。完了までお待ちください...</div>
+        <div class="saving-overlay-content">
+          <div class="data-loading-dots saving-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div id="saving-overlay-text">保存中です。完了までお待ちください...</div>
+        </div>
+      </div>
+
+      <div id="data-loading-overlay" class="data-loading-overlay" style="display:none;" aria-live="polite">
+        <div class="data-loading-inner">
+          <div class="data-loading-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div id="data-loading-text" class="data-loading-text">読み込み中...</div>
+        </div>
       </div>
 
       <? } ?>

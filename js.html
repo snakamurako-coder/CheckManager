@@ -1,4 +1,34 @@
 <script>
+const LS_APP_STATE = 'CheckManager_v1_appState';
+const LS_LAST_CLASS_PREFIX = 'CheckManager_v1_lastClass_';
+const LS_LAST_TASK_PREFIX = 'CheckManager_v1_lastTaskCol_';
+
+function lastClassStorageKey() {
+  return LS_LAST_CLASS_PREFIX + state.bookType;
+}
+function lastTaskStorageKey() {
+  return LS_LAST_TASK_PREFIX + state.bookType;
+}
+function persistLastClassSelection() {
+  const v = document.getElementById('class-select').value;
+  try {
+    if (v) localStorage.setItem(lastClassStorageKey(), v);
+  } catch (e) {}
+}
+function persistLastTaskColSelection() {
+  const taskSel = document.getElementById('task-select');
+  if (!taskSel) return;
+  const v = taskSel.value;
+  try {
+    if (v && v !== 'new') localStorage.setItem(lastTaskStorageKey(), v);
+  } catch (e) {}
+}
+function clearLocalAppState() {
+  try {
+    localStorage.removeItem(LS_APP_STATE);
+  } catch (e) {}
+}
+
 let state = {
   bookType: 'assignment', // 'assignment' or 'quiz'
   currentClass: '',
@@ -134,15 +164,81 @@ function buildMissingStudentsMessage(missingStudents) {
   return `以下の生徒の入力がありません。\n\n${names}\n\n全員を一括で「休み」（スプレッドシート上は「休」）にしますか？`;
 }
 
-function withSaveLoading(task) {
+function withSaveLoading(task, message) {
   const allButtons = document.querySelectorAll('button');
   allButtons.forEach(b => b.disabled = true);
   const loading = document.getElementById('saving-overlay');
+  const st = document.getElementById('saving-overlay-text');
+  if (st && message) st.textContent = message;
+  else if (st) st.textContent = '保存中です。完了までお待ちください...';
   if (loading) loading.style.display = 'flex';
   task(() => {
     allButtons.forEach(b => b.disabled = false);
     if (loading) loading.style.display = 'none';
   });
+}
+
+let dataLoadingDepth = 0;
+function setDataLoadingMessage(msg) {
+  const tx = document.getElementById('data-loading-text');
+  if (tx && msg) tx.textContent = msg;
+}
+function showDataLoading(msg) {
+  dataLoadingDepth++;
+  const el = document.getElementById('data-loading-overlay');
+  if (msg) setDataLoadingMessage(msg);
+  if (el) el.style.display = 'flex';
+}
+function hideDataLoading() {
+  dataLoadingDepth = Math.max(0, dataLoadingDepth - 1);
+  if (dataLoadingDepth === 0) {
+    const el = document.getElementById('data-loading-overlay');
+    if (el) el.style.display = 'none';
+  }
+}
+function hideDataLoadingAll() {
+  dataLoadingDepth = 0;
+  const el = document.getElementById('data-loading-overlay');
+  if (el) el.style.display = 'none';
+}
+
+function applyTaskValuesFromServer(vals) {
+  if (vals && state.students && vals.length === state.students.length) {
+    for (let i = 0; i < vals.length; i++) {
+      const v = vals[i];
+      state.results[i] = (v === null || v === undefined || v === "") ? "" : v;
+    }
+  } else if (state.students && state.students.length) {
+    state.results = new Array(state.students.length).fill("");
+  }
+  state.dirtySheetRows = {};
+}
+
+function fetchTaskValuesIntoState(taskIndexStr) {
+  if (!state.students || !state.students.length || !state.currentClass) return;
+  if (!taskIndexStr || taskIndexStr === 'new') return;
+  showDataLoading('シートから入力状況を読み込み中...');
+  google.script.run.withSuccessHandler(vals => {
+    hideDataLoading();
+    applyTaskValuesFromServer(vals);
+    autoSave();
+  }).withFailureHandler(err => {
+    hideDataLoading();
+    alert('入力列の読み込みに失敗しました: ' + err.message);
+  }).getTaskColumnValues(state.bookType, state.currentClass, taskIndexStr);
+}
+
+function onTaskSelectChange() {
+  checkNewTask();
+  const taskSel = document.getElementById('task-select');
+  const v = taskSel.value;
+  if (v && v !== 'new') {
+    persistLastTaskColSelection();
+    fetchTaskValuesIntoState(v);
+  } else if (state.students && state.students.length) {
+    state.results = new Array(state.students.length).fill("");
+    state.dirtySheetRows = {};
+  }
 }
 
 function refreshBookToggles() {
@@ -296,27 +392,37 @@ function setSetupSelectsLoading(isLoading, phase) {
 }
 
 window.onload = () => {
-  // Check if there is a saved state
-  google.script.run.withSuccessHandler(savedState => {
-    if (savedState && savedState.currentClass && savedState.results) {
-      if (confirm("前回の入力途中のデータがあります。再開しますか？\n（キャンセルすると破棄して新規開始します）")) {
-        state = savedState;
-        if (typeof state.processCounter !== 'number') state.processCounter = 0;
-        if (!state.processOrderByRow) state.processOrderByRow = {};
-        if (typeof state.focusUnansweredOnly !== 'boolean') state.focusUnansweredOnly = false;
-        if (!state.dirtySheetRows) state.dirtySheetRows = {};
-        restoreStateUI();
-        return;
-      } else {
-        google.script.run.clearUserState();
-      }
+  isAdminUser = !!document.getElementById('admin-panel');
+  let savedState = null;
+  try {
+    const raw = localStorage.getItem(LS_APP_STATE);
+    if (raw) savedState = JSON.parse(raw);
+  } catch (e) {
+    savedState = null;
+  }
+  if (savedState && savedState.currentClass && savedState.results && Array.isArray(savedState.results)) {
+    if (confirm("このブラウザに保存された入力途中データがあります。再開しますか？\n（キャンセルすると破棄して新規開始します）")) {
+      state = savedState;
+      if (typeof state.processCounter !== 'number') state.processCounter = 0;
+      if (!state.processOrderByRow) state.processOrderByRow = {};
+      if (typeof state.focusUnansweredOnly !== 'boolean') state.focusUnansweredOnly = false;
+      if (!state.dirtySheetRows) state.dirtySheetRows = {};
+      restoreStateUI();
+      return;
     }
-    // Normal start
-    isAdminUser = !!document.getElementById('admin-panel');
-    applyRefTwoDigitFromState();
-    loadBookTypeAvailabilityAndStart();
-  }).loadUserState();
+    clearLocalAppState();
+  }
+  try {
+    google.script.run.clearUserState();
+  } catch (e) {}
+  applyRefTwoDigitFromState();
+  loadBookTypeAvailabilityAndStart();
 };
+
+function onClassSelectChange() {
+  persistLastClassSelection();
+  loadClassData();
+}
 
 function findFirstUnansweredIndex() {
   const idx = state.results.findIndex(r => r === "" || r === null);
@@ -343,10 +449,13 @@ function restoreStateUI() {
     setupSeqView();
     updateSeqDisplay();
   } else if (state.mode === 2) {
+    showDataLoading('番号参照用シートを同期中...');
     google.script.run.withSuccessHandler(() => {
+      hideDataLoading();
       document.getElementById('reference-view').style.display = 'flex';
       setupRefView();
     }).withFailureHandler(err => {
+      hideDataLoadingAll();
       alert('番号参照用シートの同期に失敗しました: ' + err.message);
       showSetup();
     }).ensureRefOrderSheet(state.bookType, state.currentClass);
@@ -369,6 +478,7 @@ function setBookType(type) {
 }
 
 function reloadClassList() {
+  showDataLoading('クラス一覧を読み込み中...');
   setSetupSelectsLoading(true, 'classes');
   google.script.run.withSuccessHandler(list => {
     const select = document.getElementById('class-select');
@@ -377,6 +487,7 @@ function reloadClassList() {
       select.innerHTML = '<option value="">（利用可能なクラスがありません）</option>';
       document.getElementById('task-select').innerHTML = '<option value="">—</option>';
       setSetupSelectsLoading(false);
+      hideDataLoading();
       return;
     }
     list.forEach(jsonStr => {
@@ -386,25 +497,40 @@ function reloadClassList() {
       opt.text = item.displayName;
       select.add(opt);
     });
+    let lastClass = null;
+    try {
+      lastClass = localStorage.getItem(lastClassStorageKey());
+    } catch (e) {}
+    if (lastClass && Array.from(select.options).some(o => o.value === lastClass)) {
+      select.value = lastClass;
+    }
+    setDataLoadingMessage('名簿・課題一覧を読み込み中...');
     setSetupSelectsLoading(true, 'roster');
-    loadClassData();
+    loadClassData({ fromReloadChain: true });
   }).withFailureHandler(err => {
     setSetupSelectsLoading(false);
+    hideDataLoadingAll();
     alert("クラス一覧の取得に失敗しました: " + err.message);
   }).getClassList(state.bookType);
 }
 
-function loadClassData() {
+function loadClassData(opts) {
+  opts = opts || {};
   const className = document.getElementById('class-select').value;
   if (!className) {
     setSetupSelectsLoading(false);
+    hideDataLoadingAll();
     return;
+  }
+  if (!opts.fromReloadChain) {
+    showDataLoading('名簿・課題一覧を読み込み中...');
   }
   setSetupSelectsLoading(true, 'roster');
   
   google.script.run.withSuccessHandler(data => {
     if (!data) {
       setSetupSelectsLoading(false);
+      hideDataLoading();
       alert("クラスデータの読み込みに失敗しました。");
       return;
     }
@@ -430,10 +556,33 @@ function loadClassData() {
       taskSel.add(opt);
     });
     
-    taskSel.onchange = checkNewTask;
+    taskSel.onchange = onTaskSelectChange;
     setSetupSelectsLoading(false);
+    hideDataLoading();
+
+    let lastTask = null;
+    try {
+      lastTask = localStorage.getItem(lastTaskStorageKey());
+    } catch (e) {}
+    if (lastTask && lastTask !== 'new') {
+      const hasOpt = Array.from(taskSel.options).some(o => String(o.value) === String(lastTask));
+      if (hasOpt) {
+        taskSel.value = lastTask;
+        showDataLoading('課題列の既存入力を読み込み中...');
+        google.script.run.withSuccessHandler(vals => {
+          hideDataLoading();
+          applyTaskValuesFromServer(vals);
+          autoSave();
+        }).withFailureHandler(err => {
+          hideDataLoadingAll();
+          alert('課題列の読み込みに失敗しました: ' + (err && err.message ? err.message : String(err)));
+        }).getTaskColumnValues(state.bookType, className, lastTask);
+        return;
+      }
+    }
   }).withFailureHandler(err => {
     setSetupSelectsLoading(false);
+    hideDataLoadingAll();
     alert("名簿の読み込みに失敗しました: " + err.message);
   }).getClassData(state.bookType, className);
 }
@@ -468,13 +617,15 @@ function saveNewTask() {
   
   document.getElementById('new-task-save-btn').disabled = true;
   document.getElementById('new-task-save-btn').innerText = "保存中...";
-  
+  showDataLoading('新規列を登録中...');
   google.script.run.withSuccessHandler(() => {
+    hideDataLoading();
     document.getElementById('new-task-modal').style.display = 'none';
     document.getElementById('new-task-save-btn').disabled = false;
     document.getElementById('new-task-save-btn').innerText = "保存して追加";
-    loadClassData(); // 再読み込み
+    loadClassData();
   }).withFailureHandler(err => {
+    hideDataLoadingAll();
     alert("エラー: " + err.message);
     document.getElementById('new-task-save-btn').disabled = false;
     document.getElementById('new-task-save-btn').innerText = "保存して追加";
@@ -548,8 +699,9 @@ function executeTSVImport() {
   
   document.getElementById('btn-execute-tsv').disabled = true;
   document.getElementById('btn-execute-tsv').innerText = "登録中...";
-  
+  showDataLoading('スプレッドシートに登録中...');
   google.script.run.withSuccessHandler(() => {
+    hideDataLoading();
     alert("インポートが完了しました。");
     document.getElementById('btn-execute-tsv').disabled = false;
     document.getElementById('btn-execute-tsv').innerText = "スプレッドシートに登録";
@@ -557,6 +709,7 @@ function executeTSVImport() {
     document.getElementById('tsv-mapping-container').style.display = 'none';
     reloadClassList();
   }).withFailureHandler(err => {
+    hideDataLoadingAll();
     alert("エラー: " + err.message);
     document.getElementById('btn-execute-tsv').disabled = false;
     document.getElementById('btn-execute-tsv').innerText = "スプレッドシートに登録";
@@ -567,8 +720,9 @@ function executeTSVImport() {
 function openAdminSettings() {
   document.getElementById('setup-view').style.display = 'none';
   document.getElementById('admin-view').style.display = 'flex';
-  
+  showDataLoading('管理設定を読み込み中...');
   google.script.run.withSuccessHandler(settings => {
+    hideDataLoading();
     document.getElementById('admin-assign-id').value = settings.ASSIGNMENT_SS_ID || '';
     document.getElementById('admin-quiz-pf-id').value = settings.QUIZ_PF_SS_ID || '';
     document.getElementById('admin-quiz-score-id').value = settings.QUIZ_SCORE_SS_ID || '';
@@ -586,6 +740,10 @@ function openAdminSettings() {
     if (settings.ASSIGNMENT_SS_ID) {
       fetchHeaders();
     }
+  }).withFailureHandler(err => {
+    hideDataLoadingAll();
+    alert('設定の読み込みに失敗しました: ' + err.message);
+    showSetup();
   }).getAdminSettings();
 }
 
@@ -595,8 +753,9 @@ function fetchHeaders() {
   
   const selects = ['map-name', 'map-id', 'map-class', 'map-num'].map(id => document.getElementById(id));
   selects.forEach(s => s.innerHTML = '<option>読み込み中...</option>');
-  
+  showDataLoading('見出し行を読み込み中...');
   google.script.run.withSuccessHandler(headers => {
+    hideDataLoading();
     if(!headers || headers.length === 0) {
       selects.forEach(s => s.innerHTML = '<option value="">見出しなし</option>');
       return;
@@ -618,6 +777,9 @@ function fetchHeaders() {
       document.getElementById('map-class').value = window.adminTempMaps.cls;
       document.getElementById('map-num').value = window.adminTempMaps.num;
     }
+  }).withFailureHandler(err => {
+    hideDataLoadingAll();
+    alert('見出しの取得に失敗しました: ' + err.message);
   }).getHeadersFromSheet(row);
 }
 
@@ -633,17 +795,17 @@ function saveSettings() {
   const rosterCols = document.getElementById('admin-roster-cols').value;
   const headerRows = document.getElementById('admin-header-row').value;
   
-  document.querySelectorAll('button').forEach(b => b.disabled = true);
-  
-  google.script.run.withSuccessHandler(() => {
-    alert("設定を保存し、A1セルへの反映を行いました。");
-    document.querySelectorAll('button').forEach(b => b.disabled = false);
-    showSetup();
-    reloadClassList(); 
-  }).withFailureHandler(err => {
-    alert("エラー: " + err.message);
-    document.querySelectorAll('button').forEach(b => b.disabled = false);
-  }).saveAdminSettingsFromUI(assignId, quizPfId, quizScoreId, mapName, mapId, mapClass, mapNum, rosterCols, headerRows);
+  withSaveLoading(unlock => {
+    google.script.run.withSuccessHandler(() => {
+      alert("設定を保存し、A1セルへの反映を行いました。");
+      unlock();
+      showSetup();
+      reloadClassList();
+    }).withFailureHandler(err => {
+      unlock();
+      alert("エラー: " + err.message);
+    }).saveAdminSettingsFromUI(assignId, quizPfId, quizScoreId, mapName, mapId, mapClass, mapNum, rosterCols, headerRows);
+  }, '設定を保存しています...');
 }
 
 // --- 入力モードの制御 ---
@@ -671,29 +833,44 @@ function startMode(mode) {
   const headerText = state.taskDate ? `${state.taskDate} 登録 : ${state.taskName}` : state.taskName;
   if (document.getElementById('seq-task-header')) document.getElementById('seq-task-header').innerText = headerText;
   if (document.getElementById('ref-task-header')) document.getElementById('ref-task-header').innerText = headerText;
-  
-  if (mode === 1) {
-    document.getElementById('setup-view').style.display = 'none';
-    state.currentIndex = findFirstUnansweredIndex();
-    document.getElementById('sequential-view').style.display = 'flex';
-    setupSeqView();
-    updateSeqDisplay();
-    autoSave();
-  } else {
-    google.script.run.withSuccessHandler(() => {
+
+  showDataLoading('最新の入力状況を読み込み中...');
+  google.script.run.withSuccessHandler(vals => {
+    hideDataLoading();
+    applyTaskValuesFromServer(vals);
+
+    if (mode === 1) {
       document.getElementById('setup-view').style.display = 'none';
-      document.getElementById('reference-view').style.display = 'flex';
-      setupRefView();
+      state.currentIndex = findFirstUnansweredIndex();
+      document.getElementById('sequential-view').style.display = 'flex';
+      setupSeqView();
+      updateSeqDisplay();
       autoSave();
-    }).withFailureHandler(err => {
-      alert('番号参照用シートの準備に失敗しました: ' + err.message);
-      state.mode = 0;
-    }).ensureRefOrderSheet(state.bookType, state.currentClass);
-  }
+    } else {
+      showDataLoading('番号参照用シートを準備中...');
+      google.script.run.withSuccessHandler(() => {
+        hideDataLoading();
+        document.getElementById('setup-view').style.display = 'none';
+        document.getElementById('reference-view').style.display = 'flex';
+        setupRefView();
+        autoSave();
+      }).withFailureHandler(err => {
+        hideDataLoadingAll();
+        alert('番号参照用シートの準備に失敗しました: ' + err.message);
+        state.mode = 0;
+      }).ensureRefOrderSheet(state.bookType, state.currentClass);
+    }
+  }).withFailureHandler(err => {
+    hideDataLoadingAll();
+    alert('入力状況の読み込みに失敗しました: ' + err.message);
+    state.mode = 0;
+  }).getTaskColumnValues(state.bookType, state.currentClass, state.taskIndex);
 }
 
 function autoSave() {
-  google.script.run.saveUserState(state);
+  try {
+    localStorage.setItem(LS_APP_STATE, JSON.stringify(state));
+  } catch (e) {}
 }
 
 function saveAndExit() {
@@ -1189,13 +1366,14 @@ function confirmData() {
         state.processOrderByRow = {};
         state.dirtySheetRows = {};
         state.focusUnansweredOnly = false;
+        clearLocalAppState();
         showSetup();
       }
     }).withFailureHandler(err => {
       unlock();
       alert("エラーが発生しました: " + err.message);
     }).submitAttendanceData(state.bookType, state.currentClass, state.taskIndex, state.taskName, resultsWithRow, processPayload, submitOptions);
-  });
+  }, 'スプレッドシートに反映しています...');
 }
 
 function approveAndNext() {
@@ -1215,24 +1393,24 @@ function approveAndNext() {
 }
 
 function createSecondarySheet(sortDirection) {
-  withSaveLoading(unlock => {
-    google.script.run.withSuccessHandler(url => {
-      unlock();
-      alert("教員の二次点検票を作成しました。");
-      if (confirm("作成したスプレッドシートを開きますか？")) {
-        window.open(url, '_blank');
-      }
-    }).withFailureHandler(err => {
-      unlock();
-      alert("二次点検票の作成に失敗しました: " + err.message);
-    }).createSecondaryCheckSheet(
-      state.bookType,
-      state.currentClass,
-      state.taskIndex,
-      state.taskName,
-      sortDirection
-    );
-  });
+  if (!isAdminUser) return;
+  showDataLoading('二次点検票を作成中...');
+  google.script.run.withSuccessHandler(url => {
+    hideDataLoading();
+    alert("教員の二次点検票を作成しました。");
+    if (confirm("作成したシートを開きますか？（同じ点検票ブック内に追加されます）")) {
+      window.open(url, '_blank');
+    }
+  }).withFailureHandler(err => {
+    hideDataLoadingAll();
+    alert("二次点検票の作成に失敗しました: " + err.message);
+  }).createSecondaryCheckSheet(
+    state.bookType,
+    state.currentClass,
+    state.taskIndex,
+    state.taskName,
+    sortDirection
+  );
 }
 
 // ②番号参照：物理キー（数字・Del・Enter・ショートカット）
