@@ -448,7 +448,7 @@ function createNewTask(bookType, classNameJSON, dateStr, name) {
   return true;
 }
 
-function submitAttendanceData(bookType, classNameJSON, taskIndex, taskName, resultsWithRow) {
+function submitAttendanceData(bookType, classNameJSON, taskIndex, taskName, resultsWithRow, processOrderByRow) {
   const ss = getAppSpreadsheet(bookType);
   let target;
   try { target = JSON.parse(classNameJSON); } catch(e) { target = { sheetName: classNameJSON }; }
@@ -506,12 +506,109 @@ function submitAttendanceData(bookType, classNameJSON, taskIndex, taskName, resu
       sheet.getRange(item.sheetRow, col).setValue(item.val);
     }
   });
+
+  if (processOrderByRow && typeof processOrderByRow === 'object') {
+    writeProcessOrderColumn_(sheet, headerRows, rosterCols, processOrderByRow);
+  }
   
   const logDetail = `課題列: ${parseInt(taskIndex)+1}, 課題名: ${taskName || '既存'}, 変更: ${changeLogs.length > 0 ? changeLogs.join(", ") : "なし"}`;
   logToConfig(target.sheetName + (target.group ? ` (${target.group})` : ""), bookType === 'quiz' ? "小テスト入力" : "課題入力", logDetail);
   
   clearUserState();
   
+  return ss.getUrl();
+}
+
+function writeProcessOrderColumn_(sheet, headerRows, rosterCols, processOrderByRow) {
+  const markerName = "処理順番";
+  const processCol = findOrCreateColumnByHeader_(sheet, headerRows, rosterCols + 1, markerName);
+  const keys = Object.keys(processOrderByRow);
+  if (!keys.length) return;
+  keys.forEach(rowStr => {
+    const row = parseInt(rowStr, 10);
+    if (!isNaN(row) && row > headerRows) {
+      sheet.getRange(row, processCol).setValue(processOrderByRow[rowStr]);
+    }
+  });
+}
+
+function findOrCreateColumnByHeader_(sheet, headerRow, startCol, headerName) {
+  const lastCol = Math.max(sheet.getLastColumn(), startCol);
+  const headers = sheet.getRange(headerRow, startCol, 1, lastCol - startCol + 1).getValues()[0];
+  for (let i = 0; i < headers.length; i++) {
+    if (String(headers[i]).trim() === headerName) {
+      return startCol + i;
+    }
+  }
+  const newCol = lastCol + 1;
+  if (newCol > sheet.getMaxColumns()) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), newCol - sheet.getMaxColumns());
+  }
+  sheet.getRange(headerRow, newCol).setValue(headerName);
+  return newCol;
+}
+
+function createSecondaryCheckSheet(bookType, classNameJSON, taskIndex, taskName, resultsWithRow, processOrderByRow, sortDirection) {
+  const ss = getAppSpreadsheet(bookType);
+  let target;
+  try { target = JSON.parse(classNameJSON); } catch(e) { target = { sheetName: classNameJSON, group: "" }; }
+  const sheet = ss.getSheetByName(target.sheetName);
+  if (!sheet) throw new Error("対象シートが見つかりません。");
+  if (!processOrderByRow || Object.keys(processOrderByRow).length === 0) {
+    throw new Error("処理順番データがありません。");
+  }
+
+  const settings = getAdminSettings();
+  const headerRows = parseInt(settings.HEADER_ROWS) || 5;
+  const mapClass = parseInt(settings.COL_MAP_CLASS);
+  const mapNum = parseInt(settings.COL_MAP_NUMBER);
+  const mapName = parseInt(settings.COL_MAP_NAME);
+  const colClass = isNaN(mapClass) ? 0 : mapClass;
+  const colNum = isNaN(mapNum) ? 1 : mapNum;
+  const colName = isNaN(mapName) ? 3 : mapName;
+
+  const rowsMap = {};
+  resultsWithRow.forEach(item => { rowsMap[item.sheetRow] = item.val; });
+
+  const records = [];
+  Object.keys(processOrderByRow).forEach(rowStr => {
+    const rowNum = parseInt(rowStr, 10);
+    if (isNaN(rowNum) || rowNum <= headerRows) return;
+    const rowVals = sheet.getRange(rowNum, 1, 1, Math.max(colName, colNum, colClass) + 1).getValues()[0];
+    records.push({
+      processOrder: Number(processOrderByRow[rowStr]),
+      rowNum: rowNum,
+      cls: rowVals[colClass],
+      no: rowVals[colNum],
+      name: rowVals[colName],
+      value: rowsMap[rowNum] || ""
+    });
+  });
+
+  records.sort((a, b) => {
+    const av = isNaN(a.processOrder) ? Number.MAX_SAFE_INTEGER : a.processOrder;
+    const bv = isNaN(b.processOrder) ? Number.MAX_SAFE_INTEGER : b.processOrder;
+    if (av !== bv) return sortDirection === 'desc' ? bv - av : av - bv;
+    const an = Number(a.no);
+    const bn = Number(b.no);
+    if (!isNaN(an) && !isNaN(bn)) return an - bn;
+    return String(a.no).localeCompare(String(b.no), 'ja');
+  });
+
+  const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "MMdd_HHmm");
+  const baseName = (taskName || "入力") + "_教員二次点検";
+  let newName = `${baseName}_${sortDirection === 'desc' ? '降順' : '昇順'}_${ts}`;
+  if (newName.length > 90) newName = newName.substring(0, 90);
+  const output = ss.insertSheet(newName);
+  output.getRange(1, 1, 1, 6).setValues([["処理順番", "組", "番号", "氏名", "入力値", "元シート行"]]);
+  if (records.length > 0) {
+    const values = records.map(r => [r.processOrder, r.cls, r.no, r.name, r.value, r.rowNum]);
+    output.getRange(2, 1, values.length, 6).setValues(values);
+  }
+  output.setFrozenRows(1);
+  output.autoResizeColumns(1, 6);
+
+  logToConfig(target.sheetName + (target.group ? ` (${target.group})` : ""), "二次点検票作成", `課題列:${parseInt(taskIndex)+1}, 課題名:${taskName || '既存'}, 並び:${sortDirection}`);
   return ss.getUrl();
 }
 

@@ -196,6 +196,9 @@
         </div>
 
         <div class="footer-nav row">
+          <? if (isAdmin) { ?>
+            <button id="approve-btn-seq" style="flex-grow: 1;" class="btn-primary btn-approve" onclick="approveAndNext()">承認して次へ</button>
+          <? } ?>
           <button id="submit-btn-seq" style="display:none; flex-grow: 1;" class="btn-primary" onclick="confirmData()">全入力を確定</button>
           <button class="nav-btn" onclick="saveAndExit()" style="flex-grow: 1; padding: 15px;">中断して戻る</button>
         </div>
@@ -271,6 +274,11 @@
         </div>
 
         <div class="footer-nav">
+          <button class="nav-btn" onclick="createSecondarySheet('asc')" style="width: 100%;">教員の二次点検票（処理順 昇順）</button>
+          <button class="nav-btn" onclick="createSecondarySheet('desc')" style="width: 100%;">教員の二次点検票（処理順 降順）</button>
+          <? if (isAdmin) { ?>
+            <button class="btn-primary btn-approve" onclick="approveAndNext()" style="width: 100%;">承認</button>
+          <? } ?>
           <button class="btn-primary" onclick="confirmData()" style="width: 100%;">全入力を確定する</button>
           <button class="nav-btn" onclick="saveAndExit()" style="width: 100%;">中断して戻る</button>
         </div>
@@ -291,6 +299,10 @@
           <button class="btn-primary" onclick="saveNewTask()" id="new-task-save-btn">保存して追加</button>
           <button class="nav-btn" onclick="closeNewTaskModal()" style="width: 100%; margin-top: 10px;">キャンセル</button>
         </div>
+      </div>
+
+      <div id="saving-overlay" class="saving-overlay" style="display:none;">
+        <div class="saving-overlay-content">保存中です。完了までお待ちください...</div>
       </div>
 
       <? } ?>

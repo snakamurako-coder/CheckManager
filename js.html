@@ -10,7 +10,10 @@ let state = {
   results: [],
   currentIndex: 0,
   lastAction: null,
-  refRequireTwoDigits: true
+  refRequireTwoDigits: true,
+  processCounter: 0,
+  processOrderByRow: {},
+  focusUnansweredOnly: false
 };
 
 // Mode 2 local vars
@@ -18,6 +21,108 @@ let tempNumStr = "";
 let tempScoreStr = "";
 let refQuizState = "number"; // "number" or "score"
 let refTargetIdx = -1;
+let availableBookTypes = {
+  assignment: true,
+  quiz_pf: true,
+  quiz_score: true
+};
+let isAdminUser = false;
+
+function getCurrentWorkingIndices() {
+  if (!state.focusUnansweredOnly) return state.students.map((_, i) => i);
+  const unanswered = [];
+  for (let i = 0; i < state.results.length; i++) {
+    if (state.results[i] === "" || state.results[i] === null) unanswered.push(i);
+  }
+  return unanswered;
+}
+
+function findFirstPendingFromWorkingSet() {
+  const working = getCurrentWorkingIndices();
+  return working.length > 0 ? working[0] : 0;
+}
+
+function getCurrentStudentIndex() {
+  const working = getCurrentWorkingIndices();
+  if (!working.length) return 0;
+  if (state.currentIndex < 0) state.currentIndex = 0;
+  if (state.currentIndex >= working.length) state.currentIndex = working.length - 1;
+  return working[state.currentIndex];
+}
+
+function markProcessOrderByStudentIndex(studentIdx) {
+  if (studentIdx < 0 || !state.students[studentIdx]) return;
+  state.processCounter = (state.processCounter || 0) + 1;
+  const row = state.students[studentIdx].sheetRow;
+  state.processOrderByRow[row] = state.processCounter;
+}
+
+function getMissingStudents() {
+  const missing = [];
+  for (let i = 0; i < state.students.length; i++) {
+    if (state.results[i] === "" || state.results[i] === null) {
+      missing.push(state.students[i]);
+    }
+  }
+  return missing;
+}
+
+function buildMissingStudentsMessage(missingStudents) {
+  if (!missingStudents.length) return "未入力の生徒はいません。";
+  const names = missingStudents.map(s => `${s.no}番 ${s.name}`).join("\n");
+  return `以下の生徒の入力がありません。\n\n${names}\n\n全員を一括で「休み」（スプレッドシート上は「休」）にしますか？`;
+}
+
+function withSaveLoading(task) {
+  const allButtons = document.querySelectorAll('button');
+  allButtons.forEach(b => b.disabled = true);
+  const loading = document.getElementById('saving-overlay');
+  if (loading) loading.style.display = 'flex';
+  task(() => {
+    allButtons.forEach(b => b.disabled = false);
+    if (loading) loading.style.display = 'none';
+  });
+}
+
+function refreshBookToggles() {
+  const mapping = [
+    { key: 'assignment', id: 'book-toggle-assign' },
+    { key: 'quiz_pf', id: 'book-toggle-quiz_pf' },
+    { key: 'quiz_score', id: 'book-toggle-quiz_score' }
+  ];
+  mapping.forEach(item => {
+    const btn = document.getElementById(item.id);
+    if (!btn) return;
+    const show = !!availableBookTypes[item.key];
+    btn.style.display = show ? '' : 'none';
+  });
+}
+
+function pickFirstAvailableBookType() {
+  if (availableBookTypes.assignment) return 'assignment';
+  if (availableBookTypes.quiz_pf) return 'quiz_pf';
+  if (availableBookTypes.quiz_score) return 'quiz_score';
+  return null;
+}
+
+function loadBookTypeAvailabilityAndStart() {
+  google.script.run.withSuccessHandler(settings => {
+    availableBookTypes = {
+      assignment: !!(settings && settings.ASSIGNMENT_SS_ID),
+      quiz_pf: !!(settings && settings.QUIZ_PF_SS_ID),
+      quiz_score: !!(settings && settings.QUIZ_SCORE_SS_ID)
+    };
+    refreshBookToggles();
+    const defaultType = pickFirstAvailableBookType();
+    if (!defaultType) {
+      alert("利用可能な点検票IDが設定されていません。管理者に連絡してください。");
+      return;
+    }
+    setBookType(defaultType);
+  }).withFailureHandler(() => {
+    setBookType('assignment');
+  }).getAdminSettings();
+}
 
 function clearAllRefInputs() {
   const ri = document.getElementById('ref-input');
@@ -135,6 +240,9 @@ window.onload = () => {
     if (savedState && savedState.currentClass && savedState.results) {
       if (confirm("前回の入力途中のデータがあります。再開しますか？\n（キャンセルすると破棄して新規開始します）")) {
         state = savedState;
+        if (typeof state.processCounter !== 'number') state.processCounter = 0;
+        if (!state.processOrderByRow) state.processOrderByRow = {};
+        if (typeof state.focusUnansweredOnly !== 'boolean') state.focusUnansweredOnly = false;
         restoreStateUI();
         return;
       } else {
@@ -142,8 +250,9 @@ window.onload = () => {
       }
     }
     // Normal start
+    isAdminUser = !!document.getElementById('admin-panel');
     applyRefTwoDigitFromState();
-    setBookType('assignment');
+    loadBookTypeAvailabilityAndStart();
   }).loadUserState();
 };
 
@@ -180,6 +289,11 @@ function restoreStateUI() {
 }
 
 function setBookType(type) {
+  if (!availableBookTypes[type]) {
+    const fallback = pickFirstAvailableBookType();
+    if (!fallback) return;
+    type = fallback;
+  }
   state.bookType = type;
   document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
   let toggleId = type === 'quiz_pf' ? 'quiz_pf' : (type === 'quiz_score' ? 'quiz_score' : 'assign');
@@ -483,6 +597,7 @@ function startMode(mode) {
   state.taskName = selectedOpt.dataset.name || "";
   state.taskDate = selectedOpt.dataset.date || "";
   state.lastAction = null;
+  state.focusUnansweredOnly = false;
   
   state.mode = mode;
   document.getElementById('setup-view').style.display = 'none';
@@ -538,11 +653,15 @@ function setupSeqView() {
 }
 
 function updateSeqDisplay() {
-  const s = state.students[state.currentIndex];
+  const studentIndex = getCurrentStudentIndex();
+  const s = state.students[studentIndex];
   document.getElementById('seq-name-text').innerText = `${s.no}番：${s.name}`;
-  document.getElementById('seq-current-info').innerText = `${state.currentIndex + 1} / ${state.students.length} 人目`;
+  const working = getCurrentWorkingIndices();
+  const currentPos = Math.min(state.currentIndex + 1, Math.max(working.length, 1));
+  const label = state.focusUnansweredOnly ? "未入力" : "人目";
+  document.getElementById('seq-current-info').innerText = `${currentPos} / ${working.length} ${label}`;
   
-  const currentVal = state.results[state.currentIndex];
+  const currentVal = state.results[studentIndex];
   const badge = document.getElementById('seq-status-badge');
   if (currentVal !== "" && currentVal !== null) {
     badge.innerText = `[入力済: ${currentVal}]`;
@@ -558,7 +677,7 @@ function updateSeqDisplay() {
     document.getElementById('seq-last-action').innerText = ``;
   }
   
-  if (state.currentIndex === state.students.length - 1) {
+  if (working.length <= 1 || state.currentIndex === working.length - 1) {
     document.getElementById('submit-btn-seq').style.display = 'block';
   } else {
     document.getElementById('submit-btn-seq').style.display = 'none';
@@ -586,7 +705,8 @@ function prevStudent() {
 }
 
 function nextStudent() {
-  if (state.currentIndex < state.students.length - 1) {
+  const working = getCurrentWorkingIndices();
+  if (state.currentIndex < working.length - 1) {
     state.currentIndex++;
     updateSeqDisplay();
   }
@@ -594,10 +714,13 @@ function nextStudent() {
 
 // Mode 1 Assign actions
 function recordSeqAssign(val) {
-  state.lastAction = { name: state.students[state.currentIndex].name, val: val };
-  state.results[state.currentIndex] = val;
+  const studentIndex = getCurrentStudentIndex();
+  state.lastAction = { name: state.students[studentIndex].name, val: val };
+  state.results[studentIndex] = val;
+  if (state.mode === 2) markProcessOrderByStudentIndex(studentIndex);
   autoSave();
-  if (state.currentIndex < state.students.length - 1) {
+  const working = getCurrentWorkingIndices();
+  if (state.currentIndex < working.length - 1) {
     state.currentIndex++;
     updateSeqDisplay();
   } else {
@@ -617,10 +740,13 @@ function kpSeq(val) {
     display.innerText = tempNumStr || "_";
   } else if (val === 'Enter') {
     if (tempNumStr !== "") {
-      state.lastAction = { name: state.students[state.currentIndex].name, val: tempNumStr };
-      state.results[state.currentIndex] = tempNumStr;
+      const studentIndex = getCurrentStudentIndex();
+      state.lastAction = { name: state.students[studentIndex].name, val: tempNumStr };
+      state.results[studentIndex] = tempNumStr;
+      if (state.mode === 2) markProcessOrderByStudentIndex(studentIndex);
       autoSave();
-      if (state.currentIndex < state.students.length - 1) {
+      const working = getCurrentWorkingIndices();
+      if (state.currentIndex < working.length - 1) {
         state.currentIndex++;
         updateSeqDisplay();
       } else {
@@ -783,6 +909,7 @@ function recordRefAssign(val) {
   }
   state.lastAction = { name: state.students[idx].name, val: val };
   state.results[idx] = val;
+  markProcessOrderByStudentIndex(idx);
   autoSave();
   nameEl.innerText = `${state.students[idx].name} → [${val}] 保存`;
   nameEl.style.color = val === '休' ? '#351c75' : '#188038';
@@ -886,6 +1013,7 @@ function kpRefQuiz(val) {
       if (tempScoreStr !== "") {
         state.lastAction = { name: state.students[refTargetIdx].name, val: tempScoreStr + "点" };
         state.results[refTargetIdx] = tempScoreStr;
+        markProcessOrderByStudentIndex(refTargetIdx);
         autoSave();
         nameEl.innerText = `保存: ${state.students[refTargetIdx].name}`;
         nameEl.style.color = '#188038';
@@ -914,10 +1042,28 @@ function kpRefQuiz(val) {
 // スプレッドシートへの一括書き込み
 // ==========================================
 function confirmData() {
+  if (state.mode === 2) {
+    const missingStudents = getMissingStudents();
+    if (missingStudents.length > 0) {
+      const setAbsent = confirm(buildMissingStudentsMessage(missingStudents));
+      if (setAbsent) {
+        for (let i = 0; i < state.students.length; i++) {
+          if (state.results[i] === "" || state.results[i] === null) state.results[i] = "休";
+        }
+      } else {
+        state.mode = 1;
+        state.focusUnansweredOnly = true;
+        state.currentIndex = 0;
+        document.getElementById('reference-view').style.display = 'none';
+        document.getElementById('sequential-view').style.display = 'flex';
+        setupSeqView();
+        updateSeqDisplay();
+        autoSave();
+        return;
+      }
+    }
+  }
   if (!confirm("入力データをスプレッドシートに反映しますか？\n（確定後、一時保存データは消去されます）")) return;
-  
-  // 送信中のUIロック処理
-  document.querySelectorAll('button').forEach(b => b.disabled = true);
   
   const resultsWithRow = state.students.map((student, idx) => {
     return {
@@ -926,21 +1072,80 @@ function confirmData() {
       val: state.results[idx]
     };
   });
-  
-  google.script.run.withSuccessHandler(url => {
-    alert("保存が完了しました。");
-    document.querySelectorAll('button').forEach(b => b.disabled = false);
-    if (confirm("スプレッドシートを開いて確認しますか？")) {
-      window.open(url, '_blank');
+  withSaveLoading(unlock => {
+    google.script.run.withSuccessHandler(url => {
+      alert("保存が完了しました。");
+      unlock();
+      if (confirm("スプレッドシートを開いて確認しますか？")) {
+        window.open(url, '_blank');
+      }
+      state.results = new Array(state.students.length).fill("");
+      state.currentIndex = findFirstUnansweredIndex();
+      state.processCounter = 0;
+      state.processOrderByRow = {};
+      state.focusUnansweredOnly = false;
+      showSetup();
+    }).withFailureHandler(err => {
+      unlock();
+      alert("エラーが発生しました: " + err.message);
+    }).submitAttendanceData(state.bookType, state.currentClass, state.taskIndex, state.taskName, resultsWithRow, state.processOrderByRow);
+  });
+}
+
+function approveAndNext() {
+  if (!isAdminUser) return;
+  if (state.mode === 1) {
+    if (state.currentIndex < getCurrentWorkingIndices().length - 1) {
+      state.currentIndex++;
+      updateSeqDisplay();
+    } else {
+      alert("最後の生徒です。");
     }
-    // Clear state
-    state.results = new Array(state.students.length).fill("");
-    state.currentIndex = findFirstUnansweredIndex();
-    showSetup();
-  }).withFailureHandler(err => {
-    alert("エラーが発生しました: " + err.message);
-    document.querySelectorAll('button').forEach(b => b.disabled = false);
-  }).submitAttendanceData(state.bookType, state.currentClass, state.taskIndex, state.taskName, resultsWithRow);
+    return;
+  }
+  if (state.mode === 2) {
+    tempNumStr = "";
+    tempScoreStr = "";
+    clearAllRefInputs();
+    refQuizState = "number";
+    refTargetIdx = -1;
+    document.getElementById('ref-name-display').innerText = "—";
+    document.getElementById('ref-status-badge').innerText = "";
+    document.getElementById('ref-status-display').innerText = "【出席番号 入力】";
+    document.getElementById('ref-status-display').style.color = '#1a73e8';
+  }
+}
+
+function createSecondarySheet(sortDirection) {
+  if (!state.processOrderByRow || Object.keys(state.processOrderByRow).length === 0) {
+    alert("番号参照で入力した処理順番データがありません。");
+    return;
+  }
+  const resultsWithRow = state.students.map((student, idx) => ({
+    name: student.name,
+    sheetRow: student.sheetRow,
+    val: state.results[idx]
+  }));
+  withSaveLoading(unlock => {
+    google.script.run.withSuccessHandler(url => {
+      unlock();
+      alert("教員の二次点検票を作成しました。");
+      if (confirm("作成したスプレッドシートを開きますか？")) {
+        window.open(url, '_blank');
+      }
+    }).withFailureHandler(err => {
+      unlock();
+      alert("二次点検票の作成に失敗しました: " + err.message);
+    }).createSecondaryCheckSheet(
+      state.bookType,
+      state.currentClass,
+      state.taskIndex,
+      state.taskName,
+      resultsWithRow,
+      state.processOrderByRow,
+      sortDirection
+    );
+  });
 }
 
 // ②番号参照：物理キー（数字・Del・Enter・ショートカット）
