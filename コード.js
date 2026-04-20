@@ -1,4 +1,9 @@
 /**
+ * ②番号参照の入力順を記録するシートのテンプレ名（各点検票ブックに1枚配置推奨。無い場合は入力シートをコピーして自動作成）
+ */
+var REF_ORDER_TEMPLATE_SHEET_NAME = '【テンプレ】番号参照入力順';
+
+/**
  * 初回セットアップ：エディタ上部でこの関数を選択して「実行」してください。
  */
 function setupAppEnvironment() {
@@ -42,14 +47,17 @@ function setupAppEnvironment() {
   let sampleAssignSs = SpreadsheetApp.create("【サンプル】課題点検票");
   DriveApp.getFileById(sampleAssignSs.getId()).moveTo(folder);
   createSampleSheet(sampleAssignSs.getSheets()[0], "1年＠入力", "assignment");
+  ensureRefOrderTemplateInWorkbook_(sampleAssignSs);
 
   let sampleQuizPfSs = SpreadsheetApp.create("【サンプル】小テスト点検票(合否)");
   DriveApp.getFileById(sampleQuizPfSs.getId()).moveTo(folder);
   createSampleSheet(sampleQuizPfSs.getSheets()[0], "1年＠入力", "quiz_pf");
+  ensureRefOrderTemplateInWorkbook_(sampleQuizPfSs);
 
   let sampleQuizScoreSs = SpreadsheetApp.create("【サンプル】小テスト点検票(点数)");
   DriveApp.getFileById(sampleQuizScoreSs.getId()).moveTo(folder);
   createSampleSheet(sampleQuizScoreSs.getSheets()[0], "1年＠入力", "quiz_score");
+  ensureRefOrderTemplateInWorkbook_(sampleQuizScoreSs);
 
   // 4. スクリプトプロパティへの登録
   PropertiesService.getScriptProperties().setProperties({
@@ -266,6 +274,135 @@ function clearUserState() {
   PropertiesService.getUserProperties().deleteProperty("APP_STATE");
 }
 
+function ensureRefOrderTemplateInWorkbook_(ss) {
+  try {
+    if (!ss || ss.getSheetByName(REF_ORDER_TEMPLATE_SHEET_NAME)) return;
+    const inputs = ss.getSheets().filter(s => /＠入力$/.test(s.getName()));
+    if (!inputs.length) return;
+    inputs[0].copyTo(ss).setName(REF_ORDER_TEMPLATE_SHEET_NAME);
+  } catch (e) {
+    Logger.log("ensureRefOrderTemplateInWorkbook_: " + e);
+  }
+}
+
+function inputSheetNameToOrderSheetName_(inputSheetName) {
+  const n = String(inputSheetName);
+  if (n.indexOf("＠入力") === -1) return n + "＠番号参照入力順";
+  return n.replace("＠入力", "＠番号参照入力順");
+}
+
+function escapeSheetNameForFormula_(sheetName) {
+  return "'" + String(sheetName).replace(/'/g, "''") + "'";
+}
+
+function columnToLetter_(column) {
+  let temp = "";
+  let col = column;
+  while (col > 0) {
+    let rem = (col - 1) % 26;
+    temp = String.fromCharCode(65 + rem) + temp;
+    col = Math.floor((col - 1) / 26);
+  }
+  return temp;
+}
+
+function syncRefOrderSheetFromMain_(mainSheet, orderSheet) {
+  const settings = getAdminSettings();
+  const headerRows = parseInt(settings.HEADER_ROWS) || 5;
+  const rosterCols = parseInt(settings.ROSTER_COLS) || 7;
+  const mapName = parseInt(settings.COL_MAP_NAME);
+  const colName = isNaN(mapName) ? 3 : mapName;
+  const mainName = escapeSheetNameForFormula_(mainSheet.getName());
+  const lastCol = Math.max(mainSheet.getLastColumn(), rosterCols + 1);
+  const lastRow = Math.max(mainSheet.getLastRow(), headerRows + 1);
+
+  for (let r = 1; r <= headerRows; r++) {
+    for (let c = 1; c <= lastCol; c++) {
+      const a1 = columnToLetter_(c) + r;
+      orderSheet.getRange(r, c).setFormula("=" + mainName + "!" + a1);
+    }
+  }
+  for (let r = headerRows + 1; r <= lastRow; r++) {
+    for (let c = 1; c <= rosterCols; c++) {
+      const a1 = columnToLetter_(c) + r;
+      orderSheet.getRange(r, c).setFormula("=" + mainName + "!" + a1);
+    }
+  }
+  if (lastCol > rosterCols && lastRow > headerRows) {
+    orderSheet.getRange(headerRows + 1, rosterCols + 1, lastRow, lastCol).clearContent();
+  }
+  applyOrderSheetNameStyle_(orderSheet, headerRows, rosterCols, colName, lastRow);
+}
+
+function applyOrderSheetNameStyle_(orderSheet, headerRows, rosterCols, colNameZeroBased, lastRow) {
+  const col = colNameZeroBased + 1;
+  if (lastRow <= headerRows) return;
+  const range = orderSheet.getRange(headerRows + 1, col, lastRow, col);
+  range.setFontWeight("bold");
+  range.setFontColor("#1155cc");
+  range.setFontSize(12);
+}
+
+function ensureRefOrderSheet(bookType, classNameJSON) {
+  const ss = getAppSpreadsheet(bookType);
+  let target;
+  try {
+    target = JSON.parse(classNameJSON);
+  } catch (e) {
+    target = { sheetName: classNameJSON, group: "" };
+  }
+  const mainName = target.sheetName;
+  const mainSheet = ss.getSheetByName(mainName);
+  if (!mainSheet) throw new Error("入力シートがありません: " + mainName);
+
+  ensureRefOrderTemplateInWorkbook_(ss);
+
+  const orderName = inputSheetNameToOrderSheetName_(mainName);
+  let orderSheet = ss.getSheetByName(orderName);
+  if (!orderSheet) {
+    const template = ss.getSheetByName(REF_ORDER_TEMPLATE_SHEET_NAME);
+    if (template) {
+      orderSheet = template.copyTo(ss);
+      orderSheet.setName(orderName);
+    } else {
+      orderSheet = mainSheet.copyTo(ss);
+      orderSheet.setName(orderName);
+    }
+  }
+  syncRefOrderSheetFromMain_(mainSheet, orderSheet);
+  return { ok: true, orderSheetName: orderName };
+}
+
+function writeProcessOrderToRefOrderSheet_(orderSheet, headerRows, taskCol, mainLastRow, processOrderByRow, partial) {
+  if (!processOrderByRow || typeof processOrderByRow !== "object") return;
+  const keys = Object.keys(processOrderByRow);
+  if (!keys.length) return;
+  if (partial) {
+    keys.forEach(rowStr => {
+      const row = parseInt(rowStr, 10);
+      if (!isNaN(row) && row > headerRows && row <= mainLastRow) {
+        orderSheet.getRange(row, taskCol).clearContent();
+      }
+    });
+    keys.forEach(rowStr => {
+      const row = parseInt(rowStr, 10);
+      if (!isNaN(row) && row > headerRows && row <= mainLastRow) {
+        orderSheet.getRange(row, taskCol).setValue(processOrderByRow[rowStr]);
+      }
+    });
+  } else {
+    if (mainLastRow > headerRows) {
+      orderSheet.getRange(headerRows + 1, taskCol, mainLastRow, taskCol).clearContent();
+    }
+    keys.forEach(rowStr => {
+      const row = parseInt(rowStr, 10);
+      if (!isNaN(row) && row > headerRows && row <= mainLastRow) {
+        orderSheet.getRange(row, taskCol).setValue(processOrderByRow[rowStr]);
+      }
+    });
+  }
+}
+
 function getAppSpreadsheet(bookType) {
   const settings = getAdminSettings();
   let targetId;
@@ -448,7 +585,13 @@ function createNewTask(bookType, classNameJSON, dateStr, name) {
   return true;
 }
 
-function submitAttendanceData(bookType, classNameJSON, taskIndex, taskName, resultsWithRow, processOrderByRow) {
+function submitAttendanceData(bookType, classNameJSON, taskIndex, taskName, resultsWithRow, processOrderByRow, options) {
+  options = options || {};
+  const partialValues = !!options.partialValues;
+  const partialProcessOrder = !!options.partialProcessOrder;
+  const writeProcessOrder = !!options.writeProcessOrder;
+  const skipClearUserState = !!options.skipClearUserState;
+
   const ss = getAppSpreadsheet(bookType);
   let target;
   try { target = JSON.parse(classNameJSON); } catch(e) { target = { sheetName: classNameJSON }; }
@@ -458,14 +601,12 @@ function submitAttendanceData(bookType, classNameJSON, taskIndex, taskName, resu
   const headerRows = parseInt(settings.HEADER_ROWS) || 5;
   const rosterCols = parseInt(settings.ROSTER_COLS) || 7;
   
-  const startRow = headerRows + 1;
   const col = rosterCols + 1 + parseInt(taskIndex);
   
   if (col > sheet.getMaxColumns()) {
     sheet.insertColumnsAfter(sheet.getMaxColumns(), col - sheet.getMaxColumns());
   }
   
-  // 新規課題名の書き込み
   if (taskName) {
     const taskNameCell = sheet.getRange(headerRows, col);
     if (!taskNameCell.getValue()) {
@@ -473,7 +614,6 @@ function submitAttendanceData(bookType, classNameJSON, taskIndex, taskName, resu
     }
   }
 
-  // 既存の値を取得（変更ログ用）
   let oldValues = {};
   let minRow = Infinity;
   let maxRow = -Infinity;
@@ -492,7 +632,6 @@ function submitAttendanceData(bookType, classNameJSON, taskIndex, taskName, resu
 
   let changeLogs = [];
 
-  // 生徒ごとに個別にセット
   resultsWithRow.forEach(item => {
     if (item.val !== null && item.val !== undefined && item.val !== "") {
       const oldVal = oldValues[item.sheetRow];
@@ -507,59 +646,41 @@ function submitAttendanceData(bookType, classNameJSON, taskIndex, taskName, resu
     }
   });
 
-  if (processOrderByRow && typeof processOrderByRow === 'object') {
-    writeProcessOrderColumn_(sheet, headerRows, rosterCols, processOrderByRow);
+  if (writeProcessOrder && processOrderByRow && typeof processOrderByRow === "object" && Object.keys(processOrderByRow).length > 0) {
+    const orderName = inputSheetNameToOrderSheetName_(target.sheetName);
+    const orderSheet = ss.getSheetByName(orderName);
+    if (orderSheet) {
+      const mainLastRow = sheet.getLastRow();
+      writeProcessOrderToRefOrderSheet_(orderSheet, headerRows, col, mainLastRow, processOrderByRow, partialProcessOrder);
+    }
   }
   
-  const logDetail = `課題列: ${parseInt(taskIndex)+1}, 課題名: ${taskName || '既存'}, 変更: ${changeLogs.length > 0 ? changeLogs.join(", ") : "なし"}`;
+  const logDetail = `課題列: ${parseInt(taskIndex)+1}, 課題名: ${taskName || '既存'}, 変更: ${changeLogs.length > 0 ? changeLogs.join(", ") : "なし"}${partialValues ? " (部分確定)" : ""}`;
   logToConfig(target.sheetName + (target.group ? ` (${target.group})` : ""), bookType === 'quiz' ? "小テスト入力" : "課題入力", logDetail);
   
-  clearUserState();
+  if (!skipClearUserState) {
+    clearUserState();
+  }
   
   return ss.getUrl();
 }
 
-function writeProcessOrderColumn_(sheet, headerRows, rosterCols, processOrderByRow) {
-  const markerName = "処理順番";
-  const processCol = findOrCreateColumnByHeader_(sheet, headerRows, rosterCols + 1, markerName);
-  const keys = Object.keys(processOrderByRow);
-  if (!keys.length) return;
-  keys.forEach(rowStr => {
-    const row = parseInt(rowStr, 10);
-    if (!isNaN(row) && row > headerRows) {
-      sheet.getRange(row, processCol).setValue(processOrderByRow[rowStr]);
-    }
-  });
-}
-
-function findOrCreateColumnByHeader_(sheet, headerRow, startCol, headerName) {
-  const lastCol = Math.max(sheet.getLastColumn(), startCol);
-  const headers = sheet.getRange(headerRow, startCol, 1, lastCol - startCol + 1).getValues()[0];
-  for (let i = 0; i < headers.length; i++) {
-    if (String(headers[i]).trim() === headerName) {
-      return startCol + i;
-    }
-  }
-  const newCol = lastCol + 1;
-  if (newCol > sheet.getMaxColumns()) {
-    sheet.insertColumnsAfter(sheet.getMaxColumns(), newCol - sheet.getMaxColumns());
-  }
-  sheet.getRange(headerRow, newCol).setValue(headerName);
-  return newCol;
-}
-
-function createSecondaryCheckSheet(bookType, classNameJSON, taskIndex, taskName, resultsWithRow, processOrderByRow, sortDirection) {
+function createSecondaryCheckSheet(bookType, classNameJSON, taskIndex, taskName, sortDirection) {
   const ss = getAppSpreadsheet(bookType);
   let target;
   try { target = JSON.parse(classNameJSON); } catch(e) { target = { sheetName: classNameJSON, group: "" }; }
   const sheet = ss.getSheetByName(target.sheetName);
   if (!sheet) throw new Error("対象シートが見つかりません。");
-  if (!processOrderByRow || Object.keys(processOrderByRow).length === 0) {
-    throw new Error("処理順番データがありません。");
-  }
+
+  const orderName = inputSheetNameToOrderSheetName_(target.sheetName);
+  const orderSheet = ss.getSheetByName(orderName);
+  if (!orderSheet) throw new Error("番号参照入力順シートがありません。②番号参照を開始してシートを作成してください。");
 
   const settings = getAdminSettings();
   const headerRows = parseInt(settings.HEADER_ROWS) || 5;
+  const rosterCols = parseInt(settings.ROSTER_COLS) || 7;
+  const taskCol = rosterCols + 1 + parseInt(taskIndex);
+
   const mapClass = parseInt(settings.COL_MAP_CLASS);
   const mapNum = parseInt(settings.COL_MAP_NUMBER);
   const mapName = parseInt(settings.COL_MAP_NAME);
@@ -567,8 +688,29 @@ function createSecondaryCheckSheet(bookType, classNameJSON, taskIndex, taskName,
   const colNum = isNaN(mapNum) ? 1 : mapNum;
   const colName = isNaN(mapName) ? 3 : mapName;
 
+  const lastRow = Math.max(sheet.getLastRow(), orderSheet.getLastRow());
+  if (lastRow <= headerRows) throw new Error("名簿行がありません。");
+
+  const orderVals = orderSheet.getRange(headerRows + 1, taskCol, lastRow, taskCol).getValues();
+  const processOrderByRow = {};
+  for (let i = 0; i < orderVals.length; i++) {
+    const v = orderVals[i][0];
+    const rowNum = headerRows + 1 + i;
+    if (v !== "" && v !== null && !isNaN(Number(v))) {
+      processOrderByRow[String(rowNum)] = Number(v);
+    }
+  }
+  if (Object.keys(processOrderByRow).length === 0) {
+    throw new Error("番号参照入力順シートに処理順番がありません。");
+  }
+
   const rowsMap = {};
-  resultsWithRow.forEach(item => { rowsMap[item.sheetRow] = item.val; });
+  if (taskCol <= sheet.getLastColumn()) {
+    const vals = sheet.getRange(headerRows + 1, taskCol, lastRow, taskCol).getValues();
+    for (let i = 0; i < vals.length; i++) {
+      rowsMap[headerRows + 1 + i] = vals[i][0];
+    }
+  }
 
   const records = [];
   Object.keys(processOrderByRow).forEach(rowStr => {
@@ -581,7 +723,7 @@ function createSecondaryCheckSheet(bookType, classNameJSON, taskIndex, taskName,
       cls: rowVals[colClass],
       no: rowVals[colNum],
       name: rowVals[colName],
-      value: rowsMap[rowNum] || ""
+      value: rowsMap[rowNum] !== undefined && rowsMap[rowNum] !== null ? rowsMap[rowNum] : ""
     });
   });
 
@@ -671,6 +813,7 @@ function importRosterFromTSV(bookType, targetSheetName, parsedData, mapping) {
   sheet.getRange(startRow, 1, outputData.length, rosterCols).setValues(outputData);
   sheet.getRange(startRow, 6, outputData.length, 1).setNumberFormat("0.0%");
   
+  ensureRefOrderTemplateInWorkbook_(ss);
   return true;
 }
 

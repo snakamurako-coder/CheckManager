@@ -72,6 +72,7 @@
             <input type="text" id="admin-quiz-score-id" class="admin-input" placeholder="スプレッドシートID">
           </div>
           <p style="font-size: 12px; color: #666; margin-top: 10px;">※設定を保存すると、対象ブックの全シートA1セルに「提出物」または「小テスト」が自動登録されます。</p>
+          <p style="font-size: 12px; color: #666; margin-top: 8px;">②番号参照の入力順を記録するため、各点検票ブックにシート「【テンプレ】番号参照入力順」を1枚置いてください（無い場合は②開始時に入力シートから自動コピーされます）。</p>
 
           <hr style="margin: 20px 0; border: none; border-top: 1px solid #ccc;">
           <h4 style="color: #1a73e8; margin-top: 0;">列マッピング設定</h4>
@@ -257,7 +258,7 @@
           <button class="action-btn status-kyu" onclick="recordRefAssign('休')" style="grid-column: span 2;">休み</button>
         </div>
         
-        <div id="ref-quiz-score-keypad" class="keypad-grid" style="display:none;">
+        <div id="ref-quiz-score-keypad" class="keypad-grid keypad-ref-quiz" style="display:none;">
           <button type="button" class="keypad-btn" onclick="kpRefQuiz(7)">7</button>
           <button type="button" class="keypad-btn" onclick="kpRefQuiz(8)">8</button>
           <button type="button" class="keypad-btn" onclick="kpRefQuiz(9)">9</button>
@@ -269,6 +270,7 @@
           <button type="button" class="keypad-btn" onclick="kpRefQuiz(3)">3</button>
           <button type="button" class="keypad-btn" onclick="kpRefQuiz('Del')">Del</button>
           <button type="button" class="keypad-btn" onclick="kpRefQuiz(0)">0</button>
+          <button type="button" class="keypad-btn" onclick="kpRefQuiz('Clear')">クリア</button>
           <button type="button" class="keypad-btn action-enter" onclick="kpRefQuiz('Enter')">確定</button>
           <button type="button" class="keypad-btn status-kyu" style="grid-column:span 3;" onclick="recordRefAssign('休')">休み</button>
         </div>
