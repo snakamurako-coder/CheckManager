@@ -172,6 +172,25 @@ function buildProcessOrderPayload(partialProcess) {
   return out;
 }
 
+function displayValueForConfirm_(v) {
+  return (v === null || v === undefined || v === "") ? "未入力" : String(v);
+}
+
+function buildChangePreviewLines_(resultsWithRow) {
+  const lines = [];
+  if (!resultsWithRow || !resultsWithRow.length) return lines;
+  resultsWithRow.forEach(item => {
+    const idx = state.students.findIndex(s => String(s.sheetRow) === String(item.sheetRow));
+    if (idx === -1) return;
+    const student = state.students[idx];
+    const beforeVal = state.originalResults && idx < state.originalResults.length ? state.originalResults[idx] : "";
+    const beforeText = displayValueForConfirm_(beforeVal);
+    const afterText = displayValueForConfirm_(item.val);
+    lines.push(`${student.no}番 ${student.name}: ${beforeText}→${afterText}`);
+  });
+  return lines;
+}
+
 function getMissingStudents() {
   const missing = [];
   for (let i = 0; i < state.students.length; i++) {
@@ -1398,13 +1417,15 @@ function confirmData() {
   const partialValues = true;
   const partialProcessOrder = state.mode === 2;
 
-  if (!confirm("変更があった入力だけを上書き保存します。実行しますか？")) return;
-
   const resultsWithRow = buildResultsPayloadForSubmit(true);
   if (resultsWithRow.length === 0) {
     alert('変更された入力がありません。');
     return;
   }
+  const previewLines = buildChangePreviewLines_(resultsWithRow);
+  const previewBody = previewLines.length ? previewLines.join("\n") : "（変更内容を取得できませんでした）";
+  const confirmMsg = `以下の内容の入力を行います。（これ以外の入力には変更はありません。）\n\n${previewBody}`;
+  if (!confirm(confirmMsg)) return;
 
   const processPayload = state.mode === 2 ? buildProcessOrderPayload(partialProcessOrder) : {};
   const writeProcessOrder = state.mode === 2 && Object.keys(processPayload).length > 0;
