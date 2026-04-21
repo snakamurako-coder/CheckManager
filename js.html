@@ -86,12 +86,30 @@ function markProcessOrderByStudentIndex(studentIdx) {
   state.processCounter = (state.processCounter || 0) + 1;
   const row = state.students[studentIdx].sheetRow;
   state.processOrderByRow[row] = state.processCounter;
+  persistProcessOrderRealtime_(row, state.processCounter);
 }
 
 function markDirtyByStudentIndex(studentIdx) {
   if (studentIdx < 0 || !state.students[studentIdx]) return;
   if (!state.dirtySheetRows) state.dirtySheetRows = {};
   state.dirtySheetRows[String(state.students[studentIdx].sheetRow)] = true;
+}
+
+function persistProcessOrderRealtime_(sheetRow, processOrder) {
+  if (state.mode !== 2) return;
+  if (!state.currentClass || state.taskIndex === null || state.taskIndex === undefined) return;
+  if (sheetRow === null || sheetRow === undefined || processOrder === null || processOrder === undefined) return;
+  google.script.run
+    .withFailureHandler(err => {
+      console.warn('番号参照入力順の即時保存に失敗:', err && err.message ? err.message : err);
+    })
+    .saveSingleProcessOrder(
+      state.bookType,
+      state.currentClass,
+      state.taskIndex,
+      sheetRow,
+      processOrder
+    );
 }
 
 function resetRefInputState() {

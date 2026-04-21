@@ -843,6 +843,33 @@ function submitAttendanceData(bookType, classNameJSON, taskIndex, taskName, resu
   return ss.getUrl();
 }
 
+function saveSingleProcessOrder(bookType, classNameJSON, taskIndex, sheetRow, processOrder) {
+  const ss = getAppSpreadsheet(bookType);
+  let target;
+  try { target = JSON.parse(classNameJSON); } catch (e) { target = { sheetName: classNameJSON }; }
+  const sheet = ss.getSheetByName(target.sheetName);
+  if (!sheet) throw new Error("対象シートが見つかりません。");
+
+  const orderName = inputSheetNameToOrderSheetName_(target.sheetName);
+  const orderSheet = ss.getSheetByName(orderName);
+  if (!orderSheet) throw new Error("番号参照入力順シートが見つかりません。");
+
+  const settings = getAdminSettings();
+  const rosterCols = parseInt(settings.ROSTER_COLS) || 7;
+  const col = rosterCols + 1 + parseInt(taskIndex, 10);
+  const row = parseInt(sheetRow, 10);
+  const orderVal = Number(processOrder);
+
+  if (isNaN(row) || row < 1) throw new Error("行番号が不正です。");
+  if (isNaN(orderVal)) throw new Error("処理順番が不正です。");
+
+  if (col > orderSheet.getMaxColumns()) {
+    orderSheet.insertColumnsAfter(orderSheet.getMaxColumns(), col - orderSheet.getMaxColumns());
+  }
+  orderSheet.getRange(row, col).setValue(orderVal);
+  return true;
+}
+
 function assertAdmin_() {
   const email = Session.getActiveUser().getEmail();
   if (getUserRole(email) !== "admin") {
