@@ -1036,14 +1036,28 @@ function clearRefScoreLive() {
 function refTransitionToQuizScore(idx) {
   refTargetIdx = idx;
   refQuizState = "score";
-  tempScoreStr = "";
+  const currentVal = state.results[idx];
+  const hasCurrent = currentVal !== "" && currentVal !== null;
+  if (hasCurrent && !isNaN(Number(currentVal))) {
+    tempScoreStr = String(currentVal);
+  } else {
+    tempScoreStr = "";
+  }
   syncQuizScoreDisplay();
   const statusEl = document.getElementById('ref-status-display');
   document.getElementById('ref-name-display').innerText = state.students[idx].name;
-  document.getElementById('ref-status-badge').innerText = "";
+  const badge = document.getElementById('ref-status-badge');
+  if (hasCurrent) {
+    badge.innerText = `[入力済: ${currentVal}]`;
+    badge.style.color = '#188038';
+    statusEl.innerText = "【必要なら修正、不要なら承認で次へ】";
+    statusEl.style.color = '#1a73e8';
+  } else {
+    badge.innerText = "";
+    statusEl.innerText = "【得点 入力】";
+    statusEl.style.color = '#e37400';
+  }
   clearRefScoreLive();
-  statusEl.innerText = "【得点 入力】";
-  statusEl.style.color = '#e37400';
 }
 
 function tryAutoEnterQuizScoreFromTwoDigits() {
@@ -1211,13 +1225,14 @@ function kpRefQuiz(val) {
       const badge = document.getElementById('ref-status-badge');
       const student = findStudentByRefDigits(tempNumStr);
       if (student) {
+        const idx = findStudentIndexByRefDigits(tempNumStr);
         nameEl.innerText = student.name;
-        const currentVal = state.results[findStudentIndexByRefDigits(tempNumStr)];
+        const currentVal = state.results[idx];
         if (currentVal !== "" && currentVal !== null) {
           badge.innerText = `[入力済: ${currentVal}]`;
           badge.style.color = '#188038';
-          statusEl.innerText = state.refRequireTwoDigits ? "【得点入力へ自動移行（2桁一致時）】" : "【Enterで得点へ】";
-          statusEl.style.color = '#d93025';
+          statusEl.innerText = state.refRequireTwoDigits ? "【既存値を表示中（2桁一致で得点欄へ）】" : "【Enterで得点欄へ（既存値表示）】";
+          statusEl.style.color = '#1a73e8';
         } else {
           badge.innerText = `[未入力]`;
           badge.style.color = '#ea4335';
@@ -1240,14 +1255,19 @@ function kpRefQuiz(val) {
       } else {
         const student = findStudentByRefDigits(tempNumStr);
         if (student) {
+          const idx = findStudentIndexByRefDigits(tempNumStr);
           nameEl.innerText = student.name;
-          const currentVal = state.results[findStudentIndexByRefDigits(tempNumStr)];
+          const currentVal = state.results[idx];
           if (currentVal !== "" && currentVal !== null) {
             badge.innerText = `[入力済: ${currentVal}]`;
             badge.style.color = '#188038';
+            statusEl.innerText = state.refRequireTwoDigits ? "【既存値を表示中（2桁一致で得点欄へ）】" : "【Enterで得点欄へ（既存値表示）】";
+            statusEl.style.color = '#1a73e8';
           } else {
             badge.innerText = `[未入力]`;
             badge.style.color = '#ea4335';
+            statusEl.innerText = state.refRequireTwoDigits ? "【出席番号 入力】" : "【Enter または 確定】";
+            statusEl.style.color = '#1a73e8';
           }
         } else {
           nameEl.innerText = "該当なし";
