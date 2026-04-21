@@ -39,6 +39,7 @@ let state = {
   mode: 0, // 1 or 2
   students: [],
   results: [],
+  originalResults: [],
   currentIndex: 0,
   lastAction: null,
   refRequireTwoDigits: true,
@@ -138,6 +139,7 @@ function resetRefInputState() {
 }
 
 function buildResultsPayloadForSubmit(usePartialDirty) {
+  const normalizeVal = v => (v === null || v === undefined || v === "") ? "" : String(v);
   if (!usePartialDirty) {
     return state.students.map((student, idx) => ({
       name: student.name,
@@ -150,6 +152,8 @@ function buildResultsPayloadForSubmit(usePartialDirty) {
     const rowKey = String(student.sheetRow);
     if (!state.dirtySheetRows || !state.dirtySheetRows[rowKey]) return;
     const val = state.results[idx];
+    const originalVal = state.originalResults && idx < state.originalResults.length ? state.originalResults[idx] : "";
+    if (normalizeVal(val) === normalizeVal(originalVal)) return;
     if (val === "" || val === null) return;
     out.push({ name: student.name, sheetRow: student.sheetRow, val });
   });
@@ -228,8 +232,10 @@ function applyTaskValuesFromServer(vals) {
       const v = vals[i];
       state.results[i] = (v === null || v === undefined || v === "") ? "" : v;
     }
+    state.originalResults = state.results.slice();
   } else if (state.students && state.students.length) {
     state.results = new Array(state.students.length).fill("");
+    state.originalResults = state.results.slice();
   }
   state.dirtySheetRows = {};
 }
@@ -259,6 +265,7 @@ function onTaskSelectChange() {
     }
   } else if (state.students && state.students.length) {
     state.results = new Array(state.students.length).fill("");
+    state.originalResults = state.results.slice();
     state.dirtySheetRows = {};
   }
 }
@@ -596,6 +603,7 @@ function loadClassData(opts) {
     }
     state.students = data.students;
     state.results = new Array(data.students.length).fill("");
+    state.originalResults = state.results.slice();
     state.dirtySheetRows = {};
     state.currentClass = className;
     
@@ -1387,49 +1395,24 @@ function confirmData() {
     }
   }
 
-  let partialValues = false;
-  let partialProcessOrder = false;
+  const partialValues = true;
+  const partialProcessOrder = state.mode === 2;
 
-  if (isAdminUser) {
-    if (!confirm('スプレッドシートに保存しますか？\n\n「キャンセル」＝アプリ内のみ保存してホームに戻り、あとから続きの入力ができます。')) {
-      autoSave();
-      alert('アプリ内に保存しました。');
-      showSetup();
-      return;
-    }
-    partialValues = confirm('今回変更した生徒だけを保存しますか？\n\nOK＝部分確定（変更行のみ）\nキャンセル＝まとめて確定（番号参照の入力順は該当列を全行クリアしてから一括）');
-    partialProcessOrder = partialValues && state.mode === 2;
-  }
+  if (!confirm("変更があった入力だけを上書き保存します。実行しますか？")) return;
 
-  if (partialValues) {
-    const dirtyKeys = state.dirtySheetRows ? Object.keys(state.dirtySheetRows) : [];
-    if (dirtyKeys.length === 0) {
-      alert('今回保存する変更がありません。');
-      return;
-    }
-  }
-
-  if (!isAdminUser) {
-    if (!confirm("入力データをスプレッドシートに反映しますか？\n（確定後、一時保存データは消去されます）")) return;
-  } else if (partialValues) {
-    if (!confirm("今回分のみスプレッドシートに反映します。\nアプリ内の入力は保持されます。よろしいですか？")) return;
-  } else {
-    if (!confirm("すべてのデータをスプレッドシートに反映します。\n（確定後、一時保存データは消去されます）")) return;
-  }
-
-  const resultsWithRow = buildResultsPayloadForSubmit(isAdminUser && partialValues);
-  if (partialValues && resultsWithRow.length === 0) {
-    alert('保存対象の入力がありません（変更した生徒に値が入っていません）。');
+  const resultsWithRow = buildResultsPayloadForSubmit(true);
+  if (resultsWithRow.length === 0) {
+    alert('変更された入力がありません。');
     return;
   }
 
-  const processPayload = state.mode === 2 ? buildProcessOrderPayload(isAdminUser && partialProcessOrder) : {};
+  const processPayload = state.mode === 2 ? buildProcessOrderPayload(partialProcessOrder) : {};
   const writeProcessOrder = state.mode === 2 && Object.keys(processPayload).length > 0;
-  const skipClearUserState = !!(isAdminUser && partialValues);
+  const skipClearUserState = false;
 
   const submitOptions = {
-    partialValues: !!(isAdminUser && partialValues),
-    partialProcessOrder: !!(isAdminUser && partialProcessOrder),
+    partialValues: true,
+    partialProcessOrder: !!partialProcessOrder,
     writeProcessOrder: writeProcessOrder,
     skipClearUserState: skipClearUserState
   };
