@@ -33,6 +33,10 @@
         <div class="input-group">
           <label>クラス選択</label>
           <select id="class-select" onchange="onClassSelectChange()"></select>
+          <label class="ref-opt-label" style="margin-top:8px;">
+            <input type="checkbox" id="opt-keep-class-selection" checked onchange="onKeepClassSelectionChange()">
+            クラス/課題の前回選択を保持し、プルダウン変更時の再読み込みを抑制する
+          </label>
         </div>
         <div class="input-group">
           <label>対象の列（課題/テスト）</label>

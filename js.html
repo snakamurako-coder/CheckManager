@@ -2,6 +2,7 @@
 const LS_APP_STATE = 'CheckManager_v1_appState';
 const LS_LAST_CLASS_PREFIX = 'CheckManager_v1_lastClass_';
 const LS_LAST_TASK_PREFIX = 'CheckManager_v1_lastTaskCol_';
+const LS_KEEP_CLASS_SELECTION = 'CheckManager_v1_keepClassSelection';
 
 function lastClassStorageKey() {
   return LS_LAST_CLASS_PREFIX + state.bookType;
@@ -41,6 +42,7 @@ let state = {
   currentIndex: 0,
   lastAction: null,
   refRequireTwoDigits: true,
+  keepClassSelectionSticky: true,
   processCounter: 0,
   processOrderByRow: {},
   focusUnansweredOnly: false,
@@ -252,7 +254,9 @@ function onTaskSelectChange() {
   const v = taskSel.value;
   if (v && v !== 'new') {
     persistLastTaskColSelection();
-    fetchTaskValuesIntoState(v);
+    if (!state.keepClassSelectionSticky) {
+      fetchTaskValuesIntoState(v);
+    }
   } else if (state.students && state.students.length) {
     state.results = new Array(state.students.length).fill("");
     state.dirtySheetRows = {};
@@ -388,6 +392,27 @@ function applyRefTwoDigitFromState() {
   else state.refRequireTwoDigits = el.checked;
 }
 
+function onKeepClassSelectionChange() {
+  const el = document.getElementById('opt-keep-class-selection');
+  state.keepClassSelectionSticky = !!(el && el.checked);
+  try {
+    localStorage.setItem(LS_KEEP_CLASS_SELECTION, state.keepClassSelectionSticky ? '1' : '0');
+  } catch (e) {}
+  autoSave();
+}
+
+function applyKeepClassSelectionFromState() {
+  const el = document.getElementById('opt-keep-class-selection');
+  if (!el) return;
+  if (typeof state.keepClassSelectionSticky !== 'boolean') state.keepClassSelectionSticky = true;
+  try {
+    const saved = localStorage.getItem(LS_KEEP_CLASS_SELECTION);
+    if (saved === '0') state.keepClassSelectionSticky = false;
+    if (saved === '1') state.keepClassSelectionSticky = true;
+  } catch (e) {}
+  el.checked = !!state.keepClassSelectionSticky;
+}
+
 function setSetupSelectsLoading(isLoading, phase) {
   const cls = document.getElementById('class-select');
   const task = document.getElementById('task-select');
@@ -434,12 +459,18 @@ window.onload = () => {
     google.script.run.clearUserState();
   } catch (e) {}
   applyRefTwoDigitFromState();
+  applyKeepClassSelectionFromState();
   loadBookTypeAvailabilityAndStart();
 };
 
 function onClassSelectChange() {
+  const taskSel = document.getElementById('task-select');
+  const preferredTaskValue = taskSel ? taskSel.value : '';
   persistLastClassSelection();
-  loadClassData();
+  loadClassData({
+    preferredTaskValue: preferredTaskValue,
+    skipTaskValueFetch: !!state.keepClassSelectionSticky
+  });
 }
 
 function findFirstUnansweredIndex() {
@@ -460,6 +491,7 @@ function restoreStateUI() {
   if (document.getElementById('ref-task-header')) document.getElementById('ref-task-header').innerText = headerText;
 
   applyRefTwoDigitFromState();
+  applyKeepClassSelectionFromState();
 
   if (state.mode === 1) {
     state.currentIndex = findFirstUnansweredIndex();
@@ -496,6 +528,10 @@ function setBookType(type) {
 }
 
 function reloadClassList() {
+  const clsEl = document.getElementById('class-select');
+  const taskEl = document.getElementById('task-select');
+  const currentClass = clsEl ? clsEl.value : '';
+  const currentTask = taskEl ? taskEl.value : '';
   showDataLoading('クラス一覧を読み込み中...');
   setSetupSelectsLoading(true, 'classes');
   google.script.run.withSuccessHandler(list => {
@@ -515,16 +551,22 @@ function reloadClassList() {
       opt.text = item.displayName;
       select.add(opt);
     });
+    let preferredClass = null;
+    if (state.keepClassSelectionSticky && currentClass) preferredClass = currentClass;
     let lastClass = null;
     try {
       lastClass = localStorage.getItem(lastClassStorageKey());
     } catch (e) {}
-    if (lastClass && Array.from(select.options).some(o => o.value === lastClass)) {
-      select.value = lastClass;
+    if (!preferredClass && lastClass) preferredClass = lastClass;
+    if (preferredClass && Array.from(select.options).some(o => o.value === preferredClass)) {
+      select.value = preferredClass;
     }
     setDataLoadingMessage('名簿・課題一覧を読み込み中...');
     setSetupSelectsLoading(true, 'roster');
-    loadClassData({ fromReloadChain: true });
+    loadClassData({
+      fromReloadChain: true,
+      preferredTaskValue: state.keepClassSelectionSticky ? currentTask : ''
+    });
   }).withFailureHandler(err => {
     setSetupSelectsLoading(false);
     hideDataLoadingAll();
@@ -578,23 +620,30 @@ function loadClassData(opts) {
     setSetupSelectsLoading(false);
     hideDataLoading();
 
+    let preferredTask = opts.preferredTaskValue || "";
     let lastTask = null;
     try {
       lastTask = localStorage.getItem(lastTaskStorageKey());
     } catch (e) {}
-    if (lastTask && lastTask !== 'new') {
-      const hasOpt = Array.from(taskSel.options).some(o => String(o.value) === String(lastTask));
+    if (!preferredTask && lastTask && lastTask !== 'new') {
+      preferredTask = lastTask;
+    }
+    if (preferredTask && preferredTask !== 'new') {
+      const hasOpt = Array.from(taskSel.options).some(o => String(o.value) === String(preferredTask));
       if (hasOpt) {
-        taskSel.value = lastTask;
-        showDataLoading('課題列の既存入力を読み込み中...');
-        google.script.run.withSuccessHandler(vals => {
-          hideDataLoading();
-          applyTaskValuesFromServer(vals);
-          autoSave();
-        }).withFailureHandler(err => {
-          hideDataLoadingAll();
-          alert('課題列の読み込みに失敗しました: ' + (err && err.message ? err.message : String(err)));
-        }).getTaskColumnValues(state.bookType, className, lastTask);
+        taskSel.value = preferredTask;
+        persistLastTaskColSelection();
+        if (!opts.skipTaskValueFetch) {
+          showDataLoading('課題列の既存入力を読み込み中...');
+          google.script.run.withSuccessHandler(vals => {
+            hideDataLoading();
+            applyTaskValuesFromServer(vals);
+            autoSave();
+          }).withFailureHandler(err => {
+            hideDataLoadingAll();
+            alert('課題列の読み込みに失敗しました: ' + (err && err.message ? err.message : String(err)));
+          }).getTaskColumnValues(state.bookType, className, preferredTask);
+        }
         return;
       }
     }
