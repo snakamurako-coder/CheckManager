@@ -870,6 +870,53 @@ function saveSingleProcessOrder(bookType, classNameJSON, taskIndex, sheetRow, pr
   return true;
 }
 
+function getProcessOrderSequenceForTask(bookType, classNameJSON, taskIndex, sortDirection) {
+  const ss = getAppSpreadsheet(bookType);
+  let target;
+  try { target = JSON.parse(classNameJSON); } catch (e) { target = { sheetName: classNameJSON, group: "" }; }
+  const sheet = ss.getSheetByName(target.sheetName);
+  if (!sheet) throw new Error("対象シートが見つかりません。");
+
+  const orderName = inputSheetNameToOrderSheetName_(target.sheetName);
+  const orderSheet = ss.getSheetByName(orderName);
+  if (!orderSheet) throw new Error("番号参照入力順シートがありません。");
+
+  const settings = getAdminSettings();
+  const headerRows = parseInt(settings.HEADER_ROWS) || 5;
+  const rosterCols = parseInt(settings.ROSTER_COLS) || 7;
+  const mapClass = parseInt(settings.COL_MAP_CLASS);
+  const colClass = isNaN(mapClass) ? 0 : mapClass;
+  const taskCol = rosterCols + 1 + parseInt(taskIndex, 10);
+  if (isNaN(taskCol)) throw new Error("課題列が不正です。");
+
+  const lastRow = Math.max(sheet.getLastRow(), orderSheet.getLastRow());
+  if (lastRow <= headerRows) return [];
+
+  const orderVals = orderSheet.getRange(headerRows + 1, taskCol, lastRow - headerRows, 1).getValues();
+  const classVals = sheet.getRange(headerRows + 1, colClass + 1, lastRow - headerRows, 1).getValues();
+
+  const records = [];
+  for (let i = 0; i < orderVals.length; i++) {
+    const orderVal = orderVals[i][0];
+    if (orderVal === "" || orderVal === null || isNaN(Number(orderVal))) continue;
+    const rowNum = headerRows + 1 + i;
+    const clsVal = classVals[i] ? classVals[i][0] : "";
+    if (target.group && String(clsVal) !== String(target.group)) continue;
+    records.push({
+      sheetRow: rowNum,
+      processOrder: Number(orderVal)
+    });
+  }
+
+  records.sort((a, b) => {
+    if (a.processOrder !== b.processOrder) {
+      return sortDirection === 'desc' ? b.processOrder - a.processOrder : a.processOrder - b.processOrder;
+    }
+    return a.sheetRow - b.sheetRow;
+  });
+  return records.map(r => r.sheetRow);
+}
+
 function assertAdmin_() {
   const email = Session.getActiveUser().getEmail();
   if (getUserRole(email) !== "admin") {
@@ -930,15 +977,24 @@ function createSecondaryCheckSheet(bookType, classNameJSON, taskIndex, taskName,
     const rowNum = parseInt(rowStr, 10);
     if (isNaN(rowNum) || rowNum <= headerRows) return;
     const rowVals = sheet.getRange(rowNum, 1, 1, Math.max(colName, colNum, colClass) + 1).getValues()[0];
+    const clsVal = rowVals[colClass];
+    // クラス（組）選択時は、その組だけを二次点検の対象にする
+    if (target.group && String(clsVal) !== String(target.group)) return;
     records.push({
       processOrder: Number(processOrderByRow[rowStr]),
       rowNum: rowNum,
-      cls: rowVals[colClass],
+      cls: clsVal,
       no: rowVals[colNum],
       name: rowVals[colName],
       value: rowsMap[rowNum] !== undefined && rowsMap[rowNum] !== null ? rowsMap[rowNum] : ""
     });
   });
+
+  if (records.length === 0) {
+    throw new Error(target.group
+      ? `選択中の組（${target.group}）に対応する番号参照の処理順データがありません。`
+      : "番号参照入力順シートに処理順番がありません。");
+  }
 
   records.sort((a, b) => {
     const av = isNaN(a.processOrder) ? Number.MAX_SAFE_INTEGER : a.processOrder;
@@ -956,10 +1012,8 @@ function createSecondaryCheckSheet(bookType, classNameJSON, taskIndex, taskName,
   if (newName.length > 90) newName = newName.substring(0, 90);
   const output = ss.insertSheet(newName);
   output.getRange(1, 1, 1, 6).setValues([["処理順番", "組", "番号", "氏名", "入力値", "元シート行"]]);
-  if (records.length > 0) {
-    const values = records.map(r => [r.processOrder, r.cls, r.no, r.name, r.value, r.rowNum]);
-    output.getRange(2, 1, values.length, 6).setValues(values);
-  }
+  const values = records.map(r => [r.processOrder, r.cls, r.no, r.name, r.value, r.rowNum]);
+  output.getRange(2, 1, values.length, 6).setValues(values);
   output.setFrozenRows(1);
   output.autoResizeColumns(1, 6);
 

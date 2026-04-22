@@ -47,7 +47,9 @@ let state = {
   processCounter: 0,
   processOrderByRow: {},
   focusUnansweredOnly: false,
-  dirtySheetRows: {}
+  dirtySheetRows: {},
+  customWorkingIndices: null,
+  secondaryCheckSort: null
 };
 
 // Mode 2 local vars
@@ -63,10 +65,14 @@ let availableBookTypes = {
 let isAdminUser = false;
 
 function getCurrentWorkingIndices() {
-  if (!state.focusUnansweredOnly) return state.students.map((_, i) => i);
+  const base = Array.isArray(state.customWorkingIndices) && state.customWorkingIndices.length
+    ? state.customWorkingIndices.slice()
+    : state.students.map((_, i) => i);
+  if (!state.focusUnansweredOnly) return base;
   const unanswered = [];
-  for (let i = 0; i < state.results.length; i++) {
-    if (state.results[i] === "" || state.results[i] === null) unanswered.push(i);
+  for (let i = 0; i < base.length; i++) {
+    const idx = base[i];
+    if (state.results[idx] === "" || state.results[idx] === null) unanswered.push(idx);
   }
   return unanswered;
 }
@@ -504,6 +510,15 @@ function findFirstUnansweredIndex() {
   return idx === -1 ? 0 : idx;
 }
 
+function buildTaskHeaderText() {
+  const base = state.taskDate ? `${state.taskDate} 登録 : ${state.taskName}` : state.taskName;
+  if (state.mode === 1 && state.secondaryCheckSort) {
+    const orderLabel = state.secondaryCheckSort === 'desc' ? '降順' : '昇順';
+    return `${base}｜二次点検モード（${orderLabel}）`;
+  }
+  return base;
+}
+
 function hasExistingInputsInCurrentTask() {
   if (!state.results || !state.results.length) return false;
   return state.results.some(v => v !== "" && v !== null);
@@ -516,8 +531,8 @@ function promptMode2StartActionForExistingData() {
     '②番号参照の開始方法を選んでください。',
     '',
     '1: 通常の番号参照入力',
-    '2: 教員の二次点検票を作成（処理順 昇順）',
-    '3: 教員の二次点検票を作成（処理順 降順）',
+    '2: 教員の二次点検（処理順 昇順）',
+    '3: 教員の二次点検（処理順 降順）',
     '',
     '1 / 2 / 3 を入力（キャンセルで中止）'
   ].join('\n');
@@ -531,6 +546,34 @@ function promptMode2StartActionForExistingData() {
   return 'cancel';
 }
 
+function openSequentialByOrderSheetRows(sheetRows, sortDirection) {
+  const byRow = {};
+  state.students.forEach((s, i) => { byRow[String(s.sheetRow)] = i; });
+  const ordered = [];
+  sheetRows.forEach(r => {
+    const idx = byRow[String(r)];
+    if (idx !== undefined) ordered.push(idx);
+  });
+  if (!ordered.length) {
+    alert('選択中の組に番号参照の処理順データがありません。');
+    state.mode = 0;
+    return;
+  }
+  state.mode = 1;
+  state.secondaryCheckSort = sortDirection === 'desc' ? 'desc' : 'asc';
+  state.customWorkingIndices = ordered;
+  state.currentIndex = 0;
+  const headerText = buildTaskHeaderText();
+  if (document.getElementById('seq-task-header')) document.getElementById('seq-task-header').innerText = headerText;
+  document.getElementById('setup-view').style.display = 'none';
+  document.getElementById('sequential-view').style.display = 'flex';
+  setupSeqView();
+  updateSeqDisplay();
+  const orderLabel = sortDirection === 'desc' ? '降順' : '昇順';
+  alert(`教員の二次点検モード（${orderLabel}）で開始します。`);
+  autoSave();
+}
+
 function restoreStateUI() {
   document.getElementById('setup-view').style.display = 'none';
   
@@ -539,7 +582,7 @@ function restoreStateUI() {
   let toggleId = state.bookType === 'quiz_pf' ? 'quiz_pf' : (state.bookType === 'quiz_score' ? 'quiz_score' : 'assign');
   document.getElementById(`book-toggle-${toggleId}`).classList.add('active');
 
-  const headerText = state.taskDate ? `${state.taskDate} 登録 : ${state.taskName}` : state.taskName;
+  const headerText = buildTaskHeaderText();
   if (document.getElementById('seq-task-header')) document.getElementById('seq-task-header').innerText = headerText;
   if (document.getElementById('ref-task-header')) document.getElementById('ref-task-header').innerText = headerText;
 
@@ -547,7 +590,12 @@ function restoreStateUI() {
   applyKeepClassSelectionFromState();
 
   if (state.mode === 1) {
-    state.currentIndex = findFirstUnansweredIndex();
+    if (Array.isArray(state.customWorkingIndices) && state.customWorkingIndices.length) {
+      if (state.currentIndex < 0) state.currentIndex = 0;
+      if (state.currentIndex >= state.customWorkingIndices.length) state.currentIndex = 0;
+    } else {
+      state.currentIndex = findFirstUnansweredIndex();
+    }
     document.getElementById('sequential-view').style.display = 'flex';
     setupSeqView();
     updateSeqDisplay();
@@ -949,9 +997,11 @@ function startMode(mode) {
   state.taskDate = selectedOpt.dataset.date || "";
   state.lastAction = null;
   state.focusUnansweredOnly = false;
+  state.customWorkingIndices = null;
+  state.secondaryCheckSort = null;
   
   state.mode = mode;
-  const headerText = state.taskDate ? `${state.taskDate} 登録 : ${state.taskName}` : state.taskName;
+  const headerText = buildTaskHeaderText();
   if (document.getElementById('seq-task-header')) document.getElementById('seq-task-header').innerText = headerText;
   if (document.getElementById('ref-task-header')) document.getElementById('ref-task-header').innerText = headerText;
 
@@ -967,13 +1017,27 @@ function startMode(mode) {
         return;
       }
       if (action === 'secondary_asc') {
-        state.mode = 0;
-        createSecondarySheet('asc');
+        showDataLoading('番号参照の処理順（昇順）を読み込み中...');
+        google.script.run.withSuccessHandler(rows => {
+          hideDataLoading();
+          openSequentialByOrderSheetRows(rows, 'asc');
+        }).withFailureHandler(err => {
+          hideDataLoadingAll();
+          alert('二次点検モードの開始に失敗しました: ' + err.message);
+          state.mode = 0;
+        }).getProcessOrderSequenceForTask(state.bookType, state.currentClass, state.taskIndex, 'asc');
         return;
       }
       if (action === 'secondary_desc') {
-        state.mode = 0;
-        createSecondarySheet('desc');
+        showDataLoading('番号参照の処理順（降順）を読み込み中...');
+        google.script.run.withSuccessHandler(rows => {
+          hideDataLoading();
+          openSequentialByOrderSheetRows(rows, 'desc');
+        }).withFailureHandler(err => {
+          hideDataLoadingAll();
+          alert('二次点検モードの開始に失敗しました: ' + err.message);
+          state.mode = 0;
+        }).getProcessOrderSequenceForTask(state.bookType, state.currentClass, state.taskIndex, 'desc');
         return;
       }
     }
@@ -1019,6 +1083,8 @@ function saveAndExit() {
 
 function showSetup() {
   applyRefTwoDigitFromState();
+  state.customWorkingIndices = null;
+  state.secondaryCheckSort = null;
   document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
   document.getElementById('setup-view').style.display = 'flex';
 }
@@ -1526,27 +1592,6 @@ function approveAndNext() {
   if (state.mode === 2) {
     resetRefInputState();
   }
-}
-
-function createSecondarySheet(sortDirection) {
-  if (!isAdminUser) return;
-  showDataLoading('二次点検票を作成中...');
-  google.script.run.withSuccessHandler(url => {
-    hideDataLoading();
-    alert("教員の二次点検票を作成しました。");
-    if (confirm("作成したシートを開きますか？（同じ点検票ブック内に追加されます）")) {
-      window.open(url, '_blank');
-    }
-  }).withFailureHandler(err => {
-    hideDataLoadingAll();
-    alert("二次点検票の作成に失敗しました: " + err.message);
-  }).createSecondaryCheckSheet(
-    state.bookType,
-    state.currentClass,
-    state.taskIndex,
-    state.taskName,
-    sortDirection
-  );
 }
 
 // ②番号参照：物理キー（数字・Del・Enter・ショートカット）
