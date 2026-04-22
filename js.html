@@ -504,6 +504,33 @@ function findFirstUnansweredIndex() {
   return idx === -1 ? 0 : idx;
 }
 
+function hasExistingInputsInCurrentTask() {
+  if (!state.results || !state.results.length) return false;
+  return state.results.some(v => v !== "" && v !== null);
+}
+
+function promptMode2StartActionForExistingData() {
+  if (!isAdminUser) return 'normal';
+  const msg = [
+    'この組は既に一次点検の入力があります。',
+    '②番号参照の開始方法を選んでください。',
+    '',
+    '1: 通常の番号参照入力',
+    '2: 教員の二次点検票を作成（処理順 昇順）',
+    '3: 教員の二次点検票を作成（処理順 降順）',
+    '',
+    '1 / 2 / 3 を入力（キャンセルで中止）'
+  ].join('\n');
+  const raw = prompt(msg, '1');
+  if (raw === null) return 'cancel';
+  const choice = String(raw).trim();
+  if (choice === '2') return 'secondary_asc';
+  if (choice === '3') return 'secondary_desc';
+  if (choice === '1' || choice === '') return 'normal';
+  alert('1 / 2 / 3 のいずれかを入力してください。');
+  return 'cancel';
+}
+
 function restoreStateUI() {
   document.getElementById('setup-view').style.display = 'none';
   
@@ -932,6 +959,24 @@ function startMode(mode) {
   google.script.run.withSuccessHandler(vals => {
     hideDataLoading();
     applyTaskValuesFromServer(vals);
+
+    if (mode === 2 && hasExistingInputsInCurrentTask()) {
+      const action = promptMode2StartActionForExistingData();
+      if (action === 'cancel') {
+        state.mode = 0;
+        return;
+      }
+      if (action === 'secondary_asc') {
+        state.mode = 0;
+        createSecondarySheet('asc');
+        return;
+      }
+      if (action === 'secondary_desc') {
+        state.mode = 0;
+        createSecondarySheet('desc');
+        return;
+      }
+    }
 
     if (mode === 1) {
       document.getElementById('setup-view').style.display = 'none';
